@@ -1,0 +1,30 @@
+{
+  "name": "andromeda-warehouse",
+  "version": "0.3.0",
+  "private": true,
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "web": "expo start --web",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/*.test.mjs",
+    "export:android": "expo export --platform android",
+    "build:preview": "eas build --platform android --profile preview"
+  },
+  "dependencies": {
+    "expo": "54.0.38",
+    "expo-crypto": "15.0.9",
+    "expo-status-bar": "3.0.9",
+    "expo-updates": "29.0.20",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "react-native": "0.81.5",
+    "react-native-safe-area-context": "5.6.0",
+    "react-native-web": "0.21.0"
+  },
+  "devDependencies": {
+    "@types/react": "19.1.10",
+    "typescript": "5.9.2"
+  }
+}

@@ -1,0 +1,77 @@
+// User-authorized general warehouse operations have no employee login.
+// Platform JWT verification remains ON. The APK carries only the public anon key.
+// Owner-only actions additionally require a short-lived server-issued token.
+const url = Deno.env.get('SUPABASE_URL')!;
+const key = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const cors = {'Access-Control-Allow-Origin':'*','Access-Control-Allow-Headers':'authorization,apikey,content-type','Content-Type':'application/json'};
+async function db(path: string, method='GET', data?: unknown) {
+ const r=await fetch(`${url}/rest/v1/${path}`,{method,headers:{apikey:key,Authorization:`Bearer ${key}`,'Content-Type':'application/json',Prefer:'return=representation'},body:data===undefined?undefined:JSON.stringify(data)});
+ const value=await r.json();
+ if(!r.ok)throw new Error(value.message ?? 'No se completó la operación');
+ return value;
+}
+function text(v:unknown,max=240):string {
+ if(typeof v!=='string'||!v.trim()||v.trim().length>max)throw new Error('Texto inválido');
+ return v.trim();
+}
+function integer(v:unknown,min:number,max:number):number {
+ if(typeof v!=='number'||!Number.isInteger(v)||v<min||v>max)throw new Error('Cantidad o ubicación inválida');
+ return v;
+}
+function uuid(v:unknown):string {
+ const s=text(v);if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s))throw new Error('Identificador de operación inválido');return s;
+}
+function location(b:Record<string,unknown>) {
+ const position=text(b.position,1);if(!/^[A-R]$/.test(position))throw new Error('Posición inválida');
+ return {p_row:integer(b.row,1,13),p_position:position,p_level:integer(b.level,1,7)};
+}
+async function owner(b:Record<string,unknown>) {
+ const token=uuid(b.owner_token);
+ const sessions=await db(`owner_sessions?token=eq.${token}&expires_at=gt.${encodeURIComponent(new Date().toISOString())}&select=token`);
+ if(sessions.length!==1)throw new Error('Sesión del dueño vencida');
+}
+Deno.serve(async(req:Request)=>{
+ if(req.method==='OPTIONS')return new Response('ok',{headers:cors});
+ if(req.method!=='POST')return new Response(JSON.stringify({error:'Método no permitido'}),{status:405,headers:cors});
+ try {
+  const raw=await req.text();if(raw.length>32768)throw new Error('Solicitud demasiado grande');
+  const b=JSON.parse(raw) as Record<string,unknown>;let result:unknown;
+  switch(b.action){
+   case 'health': result={online:true,version:'0.2.0',stock_is_migrated:false};break;
+   case 'lookup': {
+    const code=text(b.scanned_code);const base=code.replace(/-s\d+(?:-v\d+)*$/i,'');
+    let found=await db(`products?sku=eq.${encodeURIComponent(code)}&select=*&limit=1`);
+    if(!found.length&&base!==code)found=await db(`products?sku=eq.${encodeURIComponent(base)}&select=*&limit=1`);
+    if(found.length){const stock=await db(`stock?sku=eq.${encodeURIComponent(found[0].sku)}&select=*&limit=1`);result={product:found[0],stock:stock[0]??null};}
+    else {let staged=await db(`catalog_import?sku=eq.${encodeURIComponent(code)}&select=sku,requires_review&limit=1`);if(!staged.length)staged=await db(`catalog_import?sku=eq.${encodeURIComponent(base)}&select=sku,requires_review&limit=1`);result={product:null,candidate:base,requires_review:staged.length>0};}
+    break;
+   }
+   case 'pending': {
+    const code=text(b.scanned_code);result=await db('unknown_codes?on_conflict=original_code','POST',{original_code:code,candidate_sku:code.replace(/-s\d+(?:-v\d+)*$/i,'')});break;
+   }
+   case 'move': {
+    const kind=text(b.kind);if(!['in','out','relocate'].includes(kind))throw new Error('Movimiento inválido');
+    result=await db('rpc/record_movement','POST',{p_operation_id:uuid(b.operation_id),p_sku:text(b.sku),p_kind:kind,p_units:integer(b.units,kind==='relocate'?0:1,100000),...(kind==='in'||kind==='relocate'?location(b):{}),p_original_code:text(b.scanned_code??b.sku)});break;
+   }
+   case 'guides': result=await db('receipt_guides?select=*&order=recorded_at.desc&limit=100');break;
+   case 'add_guide': {
+    const date=text(b.date,10);if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||date>new Date().toISOString().slice(0,10))throw new Error('Fecha inválida');
+    result=await db('receipt_guides','POST',{guide:text(b.guide),received_on:date});break;
+   }
+   case 'picking': result=await db('picking_packages?select=*,picking_lines(*)&order=created_at.desc&limit=100');break;
+   case 'create_package': result=await db('picking_packages','POST',{label:text(b.label,100)});break;
+   case 'add_line': result=await db('picking_lines','POST',{package_id:uuid(b.package_id),sku:text(b.sku),quantity:integer(b.quantity,1,100000)});break;
+   case 'prepare_line': result=await db(`picking_lines?id=eq.${uuid(b.line_id)}`,'PATCH',{prepared:b.prepared===true});break;
+   case 'remove_line': result=await db(`picking_lines?id=eq.${uuid(b.line_id)}`,'DELETE');break;
+   case 'history': result=await db('movements?select=*&order=created_at.desc&limit=100');break;
+   case 'owner_login': result=await db('rpc/owner_login','POST',{p_pin:text(b.pin,20)});break;
+   case 'owner_pending': await owner(b);result=await db('unknown_codes?resolved_at=is.null&select=*&order=created_at.desc&limit=200');break;
+   case 'owner_resolve': {
+    await owner(b);
+    result=await db('rpc/resolve_pending','POST',{p_id:uuid(b.id),p_sku:text(b.sku),p_description:text(b.description,2000),p_internal_name:typeof b.internal_name==='string'?b.internal_name.trim():null});break;
+   }
+   default:throw new Error('Acción desconocida');
+  }
+  return new Response(JSON.stringify({data:result}),{headers:cors});
+ }catch(e){return new Response(JSON.stringify({error:e instanceof Error?e.message:'Error de operación'}),{status:400,headers:cors});}
+});
