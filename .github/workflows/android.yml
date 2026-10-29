@@ -6,7 +6,10 @@ on:
     paths:
       - '.github/workflows/android.yml'
 permissions:
-  contents: read
+  contents: write
+concurrency:
+  group: android-apk-publication
+  cancel-in-progress: false
 jobs:
   apk:
     runs-on: ubuntu-latest
@@ -64,6 +67,18 @@ jobs:
           path: android/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
           retention-days: 14
+      - name: Publish downloadable test APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          cp android/app/build/outputs/apk/release/app-release.apk ANDROMEDA-prueba.apk
+          sha256sum ANDROMEDA-prueba.apk > ANDROMEDA-prueba.apk.sha256
+          if ! gh release view apk-prueba >/dev/null 2>&1; then
+            gh release create apk-prueba --target "$GITHUB_SHA" --title "ANDROMEDA - APK de prueba" --prerelease --notes "APK para revisión del cliente. Firma de prueba; validación física Honeywell pendiente."
+          fi
+          gh release upload apk-prueba ANDROMEDA-prueba.apk ANDROMEDA-prueba.apk.sha256 --clobber
+          gh release edit apk-prueba --notes "Última APK de prueba: commit $GITHUB_SHA. Firma de prueba; validación física Honeywell pendiente."
       - name: Build notes
         shell: bash
         run: |
