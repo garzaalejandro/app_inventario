@@ -1,0 +1,96 @@
+name: APK Produccion - firma del cliente
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: android-production
+  cancel-in-progress: false
+jobs:
+  production:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment: production
+    env:
+      CI: '1'
+      EXPO_NO_TELEMETRY: '1'
+      EAS_BUILD_CHANNEL: production
+      EAS_PROJECT_ID: ${{ vars.EAS_PROJECT_ID }}
+      EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL || vars.EXPO_PUBLIC_API_URL || 'https://jfbiqsqrsbggppinmtbz.supabase.co/functions/v1/inventory' }}
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Validate production configuration
+        shell: bash
+        run: |
+          for key in EAS_PROJECT_ID EXPO_PUBLIC_API_URL EXPO_PUBLIC_SUPABASE_ANON_KEY ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [ -z "${!key}" ]; then echo "::error::Falta configurar $key para producción."; exit 1; fi
+          done
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: 'false'
+      - run: npm ci --ignore-scripts
+      - run: npm run typecheck
+      - run: npm test
+      - run: npx expo prebuild --platform android --no-install
+      - name: Configure private production signing
+        shell: bash
+        run: |
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/andromeda.keystore"
+          chmod 600 "$RUNNER_TEMP/andromeda.keystore"
+          echo "ANDROID_STORE_FILE=$RUNNER_TEMP/andromeda.keystore" >> "$GITHUB_ENV"
+          node <<'NODE'
+          const fs=require('node:fs'),file='android/app/build.gradle';
+          let text=fs.readFileSync(file,'utf8');
+          if(!text.includes('signingConfigs {')||!text.includes('signingConfig signingConfigs.debug'))throw Error('Revisar plantilla de firma Gradle.');
+          text=text.replace('signingConfigs {',`signingConfigs {
+              release {
+                  storeFile file(System.getenv("ANDROID_STORE_FILE"))
+                  storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                  keyAlias System.getenv("ANDROID_KEY_ALIAS")
+                  keyPassword System.getenv("ANDROID_KEY_PASSWORD")
+              }`);
+          text=text.replace(/signingConfig signingConfigs\.debug/g,'signingConfig signingConfigs.release');
+          fs.writeFileSync(file,text);
+          NODE
+      - name: Compile signed APK
+        working-directory: android
+        run: ./gradlew :app:assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a,armeabi-v7a
+      - name: Verify signature and prepare asset
+        shell: bash
+        run: |
+          cp android/app/build/outputs/apk/release/app-release.apk ANDROMEDA.apk
+          BUILD_TOOLS=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          "$BUILD_TOOLS/apksigner" verify --verbose ANDROMEDA.apk
+          sha256sum ANDROMEDA.apk > ANDROMEDA.apk.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ANDROMEDA-production-apk
+          path: |
+            ANDROMEDA.apk
+            ANDROMEDA.apk.sha256
+          if-no-files-found: error
+      - name: Publish signed release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="v$VERSION-build-${{ github.run_number }}"
+          gh release create "$TAG" ANDROMEDA.apk ANDROMEDA.apk.sha256 --target "$GITHUB_SHA" --title "ANDROMEDA $VERSION" --notes "APK firmada del commit $GITHUB_SHA. Primera instalación: conectar Internet y sincronizar el catálogo." --latest
+      - name: Remove signing file from runner
+        if: always()
+        run: rm -f "$RUNNER_TEMP/andromeda.keystore"

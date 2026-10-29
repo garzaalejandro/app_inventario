@@ -1,5 +1,7 @@
 # ANDROMEDA 2.0
 
+<img src="assets/andromeda-icon.png" width="96" alt="Icono ANDROMEDA" />
+
 ## Descargar APK para Android
 
 ### [⬇ Descargar ANDROMEDA — APK de prueba](https://github.com/garzaalejandro/app_inventario/releases/download/apk-prueba/ANDROMEDA-prueba.apk)
