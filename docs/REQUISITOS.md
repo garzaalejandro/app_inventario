@@ -6,8 +6,8 @@ La app anterior sirve solo como ejemplo; todo el desarrollo es nuevo.
 ## Confirmados
 - Proyecto y repositorio independientes, propiedad del cliente.
 - App activa: Expo/React Native; repositorio garzaalejandro/app_inventario.
-- Android Honeywell 11/13; APK fuera de Play, actualizaciones desde la nube.
-- Internet obligatorio; no confirmar movimientos sin respuesta del servidor.
+- Honeywell CT60 con Android 11 y 13; APK fuera de Play, actualizaciones desde la nube.
+- Requisito actualizado: operación Android sin conexión tras descarga inicial. Guardado local durable y cola con identificadores únicos; sincronización posterior. No confundir guardado local con confirmación global.
 - Acceso general sin usuario/contraseña. Solo dueño con PIN para administración,
   nombrar pendientes y mantener calidad del catálogo.
 - Lectura por QR y código de barras con teclado/Enter; no confundir guía con SKU.
@@ -49,3 +49,7 @@ Escanear exacto y con sufijo; código desconocido; sumar 1 + 2 = 3; localizar;
 consultar sin editar; reubicar sin cambiar stock; preparar 2 + 1 sin descontar;
 salida y reintento sin doble descuento; dos terminales compitiendo por última
 unidad; apagar Internet y verificar que no confirme ninguna operación.
+## Versión 0.4.0: sin conexión
+SQLite persiste catálogo, existencias base, paquetes, guías y cola. La primera descarga y el PIN/administración requieren Internet. Conflictos se conservan; bloquean nuevas escrituras del equipo hasta revisión. No se puede garantizar stock global mientras dos terminales están desconectadas. No desinstalar ni borrar datos con cola pendiente.
+
+Validar físicamente en ambos CT60: barras/QR con Enter, modo avión, cierre y reinicio, reintentos y concurrencia. SQLite exige APK nueva; futuras OTA deben conservar el runtime 0.4.0 mientras no cambie código nativo.

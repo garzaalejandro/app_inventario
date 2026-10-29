@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/android.yml'
+      - 'app.config.ts'
+      - 'package-lock.json'
 permissions:
   contents: write
 concurrency:
@@ -90,3 +92,4 @@ jobs:
           Sin EAS_PROJECT_ID, esta APK no recibe actualizaciones de Expo; vincular el proyecto y recompilar para habilitarlas.
           No se ha importado el stock físico anterior.
           NOTES
+

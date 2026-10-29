@@ -17,6 +17,19 @@ Aplicación nueva de almacén con Expo SDK 54, React Native y TypeScript.
 Backend independiente en Supabase. El código anterior Flutter fue referencia,
 no es la aplicación activa de este repositorio.
 
+## Versión 0.4.0 — almacenamiento sin conexión
+
+Catálogo y existencias locales en SQLite, cola persistente para entradas, salidas,
+reacomodos, guías, pendientes y paquetes; reintentos con el mismo identificador.
+La primera descarga y la administración del dueño requieren Internet.
+El stock local incluye operaciones pendientes y no garantiza el stock de otras terminales.
+Los conflictos se conservan para revisión; nunca se descartan automáticamente.
+No desinstalar ni borrar los datos del equipo con operaciones por sincronizar.
+
+**Requiere una APK nueva**, porque incorpora SQLite. No es una OTA compatible con 0.3.0.
+Estado: validación técnica, aún pendiente aceptación física y firma definitiva del cliente.
+Ver docs/ENTREGA.md.
+
 ## Preparar y ejecutar
 
 Node 22 LTS. Instalar con `npm ci`, copiar `.env.example` a `.env` y configurar
@@ -53,7 +66,7 @@ EAS Update está preparado condicionalmente para el UUID real de Expo. Después 
 vincular y generar la APK, los cambios JS/assets compatibles pueden publicarse
 con `eas update --channel preview --environment preview`. Cambios nativos,
 permisos o SDK requieren otra APK. Mantener firma y package estables.
-No hay proyecto EAS verificado ni APK generada todavía.
+El UUID EAS debe verificarse y configurarse en GitHub antes de habilitar OTA. La APK descargable puede corresponder a una versión anterior hasta completar el nuevo build.
 
 ## Implementado para la primera revisión
 
@@ -63,7 +76,7 @@ No hay proyecto EAS verificado ni APK generada todavía.
 - Pendientes desconocidos y administración del dueño mediante PIN del servidor.
 - Guías con fecha, listas de preparación por paquete y marcado de preparación.
 - Quitar una línea de preparación no descuenta existencias ni registra devolución.
-- Historial reciente y comprobación de conexión. No guarda movimientos offline.
+- Historial reciente, guardado local durable y sincronización de movimientos offline.
 - Pruebas de dominio para sufijos, cantidades, ubicaciones y paquetes 2 + 1.
 
 Servicio Supabase implementado en `supabase/functions/inventory/index.ts`.
@@ -84,4 +97,4 @@ Drive, hojas originales y Firebase anterior permanecen intactos.
 
 TypeScript sin errores; cinco pruebas de dominio aprobadas; dependencias
 compatibles según Expo; exportación Android Metro/Hermes completada.
-No se ha compilado un APK ni verificado el hardware Honeywell.
+La compilación de la APK 0.4.0 y la prueba física de Honeywell deben verificarse antes de entregar.

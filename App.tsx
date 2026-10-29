@@ -4,7 +4,7 @@ import {StatusBar} from 'expo-status-bar';
 import {SafeAreaProvider,SafeAreaView} from 'react-native-safe-area-context';
 import * as Crypto from 'expo-crypto';
 import * as Updates from 'expo-updates';
-import {api,configured,type Guide,type Lookup,type Movement,type Package,type Pending} from './src/api';
+import {api,configured,offlineStatus,synchronize,lastReceipt,retryConflict,type Guide,type Lookup,type Movement,type Package,type Pending} from './src/api';
 import {baseCandidate,positiveUnits,validateLocation} from './src/domain.mjs';
 
 type Screen='Inicio'|'Consultar'|'Productos'|'Reacomodo'|'Salidas'|'Para enviar'|'Guías'|'Historial'|'Dueño';
@@ -21,9 +21,15 @@ function Button({title,onPress,disabled=false,secondary=false}:{title:string;onP
  return <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={[s.button,secondary&&s.secondary,disabled&&s.disabled]}><Text style={[s.buttonText,secondary&&s.secondaryText]}>{title}</Text></Pressable>;
 }
 function Field({label,value,onChange,number=false,secret=false,onSubmit,inputRef}:{label:string;value:string;onChange:(v:string)=>void;number?:boolean;secret?:boolean;onSubmit?:(text:string)=>void;inputRef?:React.RefObject<TextInput|null>}){
- return <View style={s.field}><Text style={s.label}>{label}</Text><TextInput ref={inputRef} style={s.input} accessibilityLabel={label} value={value} onChangeText={text=>{const clean=text.replace(/[\r\n]+/g,'');onChange(clean);if(/[\r\n]/.test(text))onSubmit?.(clean);}} keyboardType={number?'number-pad':'default'} secureTextEntry={secret} autoCorrect={false} autoCapitalize="none" onSubmitEditing={e=>onSubmit?.(e.nativeEvent.text)} submitBehavior="submit" autoFocus={!!inputRef} returnKeyType="done"/></View>;
+ const settle=useRef<ReturnType<typeof setTimeout>|null>(null);
+ const submitRef=useRef(onSubmit);submitRef.current=onSubmit;
+ useEffect(()=>()=>{if(settle.current)clearTimeout(settle.current);},[]);
+ const submit=(text:string)=>{if(settle.current)clearTimeout(settle.current);submitRef.current?.(text);};
+ return <View style={s.field}><Text style={s.label}>{label}</Text><TextInput ref={inputRef} style={s.input} accessibilityLabel={label} value={value} onChangeText={text=>{if(settle.current)clearTimeout(settle.current);const clean=text.replace(/[\r\n]+/g,'');onChange(clean);if(/[\r\n]/.test(text))submit(clean);else if(inputRef&&clean.length>=4&&Math.abs(clean.length-value.length)>=4)settle.current=setTimeout(()=>submit(clean),250);}} keyboardType={number?'number-pad':'default'} secureTextEntry={secret} autoCorrect={false} autoCapitalize="none" onSubmitEditing={e=>submit(e.nativeEvent.text)} submitBehavior="submit" autoFocus={!!inputRef} returnKeyType="done"/></View>;
 }
 export default function App(){
+ const [syncState,setSyncState]=useState(()=>offlineStatus());
+ const [syncBusy,setSyncBusy]=useState(false);
  const [screen,setScreen]=useState<Screen>('Inicio');
  const [busy,setBusy]=useState(false);const busyRef=useRef(false);
  const [online,setOnline]=useState<boolean|null>(null);const [message,setMessage]=useState('');
@@ -37,11 +43,16 @@ export default function App(){
  const [editing,setEditing]=useState<Pending|null>(null);const [officialSku,setOfficialSku]=useState('');const [description,setDescription]=useState('');const [internalName,setInternalName]=useState('');
  const [confirmation,setConfirmation]=useState<{text:string;run:()=>Promise<void>}|null>(null);
  const scanRef=useRef<TextInput>(null);
- useEffect(()=>{let active=true;const check=()=>api<{online:boolean}>('health').then(r=>{if(active)setOnline(r.online);}).catch(()=>{if(active)setOnline(false);});void check();const id=setInterval(check,30000);return()=>{active=false;clearInterval(id);};},[]);
+ useEffect(()=>{let active=true;
+  const check=async()=>{if(!active)return;setSyncBusy(true);try{await synchronize();}catch{}finally{if(active){setSyncState(offlineStatus());setOnline(offlineStatus().online);setSyncBusy(false);}}};
+  void check();const id=setInterval(()=>void check(),30000);return()=>{active=false;clearInterval(id);};},[]);
+ async function syncNow(){setSyncBusy(true);try{await synchronize(true);setMessage('Catálogo y movimientos sincronizados.');}catch(e){setMessage((e as Error).message);}finally{setSyncState(offlineStatus());setOnline(offlineStatus().online);setSyncBusy(false);}}
+ useEffect(()=>{if(['Consultar','Productos','Reacomodo','Salidas','Para enviar','Guías'].includes(screen))scanRef.current?.focus();},[screen]);
+
  const run=useCallback(async<T,>(fn:()=>Promise<T>):Promise<T|undefined>=>{
   if(busyRef.current)return;busyRef.current=true;setBusy(true);setMessage('');
   try{return await fn();}catch(e){setMessage(e instanceof Error?e.message:'No se completó la operación.');return undefined;}
-  finally{busyRef.current=false;setBusy(false);}
+  finally{busyRef.current=false;setBusy(false);setSyncState(offlineStatus());}
  },[]);
  async function refresh(target=screen){
   await run(async()=>{
@@ -58,10 +69,10 @@ export default function App(){
   void refresh(next);
  }
  async function registerGuide(scannedText=code){
-  const guide=scannedText.trim();if(!guide||online!==true||busyRef.current)return;
+  const guide=scannedText.trim();if(!guide||busyRef.current)return;
   await run(async()=>{
    await api('add_guide',{guide,date});
-   setCode('');setMessage('Guía registrada. Lista para la siguiente lectura.');
+   setCode('');setMessage(lastReceipt+' Lista para la siguiente lectura.');
    scanRef.current?.focus();setGuides(await api<Guide[]>('guides'));
   });
  }
@@ -79,8 +90,8 @@ export default function App(){
    const quantity=kind==='relocate'?0:positiveUnits(units);
    const loc=kind==='out'?{}:validateLocation(Number(row),position,Number(level));
    const payload={operation_id:operation,sku:product.sku,scanned_code:code.trim(),kind,units:quantity,...loc};
-   setConfirmation({text:kind==='out'?`Despachar ${quantity} unidades de ${product.sku}. Se descontarán del stock.`:kind==='in'?`Agregar ${quantity} unidades de ${product.sku}.`:`Mover todas las unidades de ${product.sku} a fila ${row}, posición ${position}, nivel ${level}.`,run:async()=>{
-    await run(async()=>{await api('move',payload);setMessage('Movimiento confirmado en la nube.');setLookup(null);setCode('');setOperation(Crypto.randomUUID());scanRef.current?.focus();});
+   setConfirmation({text:kind==='out'?`Despachar ${quantity} unidades de ${product.sku}. Se guardará en este equipo; debe sincronizarse para confirmar existencias globales.`:kind==='in'?`Agregar ${quantity} unidades de ${product.sku}.`:`Mover todas las unidades de ${product.sku} a fila ${row}, posición ${position}, nivel ${level}.`,run:async()=>{
+    await run(async()=>{await api('move',payload);setMessage(lastReceipt);setLookup(null);setCode('');setOperation(Crypto.randomUUID());scanRef.current?.focus();});
    }});
   }catch(e){setMessage((e as Error).message);}
  }
@@ -90,17 +101,23 @@ export default function App(){
   await Updates.fetchUpdateAsync();setConfirmation({text:'Actualización descargada. ¿Reiniciar la app para aplicarla?',run:async()=>{await Updates.reloadAsync();}});
  });}
  const showScanner=['Consultar','Productos','Reacomodo','Salidas','Para enviar'].includes(screen);
- const product=lookup?.product;const disabled=busy||online!==true;
+ const product=lookup?.product;const disabled=busy||syncBusy;
  return <SafeAreaProvider><SafeAreaView style={s.root}><KeyboardAvoidingView style={s.root} behavior={Platform.OS==='ios'?'padding':undefined}>
  <StatusBar style="dark"/>
  <View style={s.header}><View><Text style={s.brand}>ANDROMEDA <Text style={s.brandLight}>2.0</Text></Text><Text style={s.subtitle}>Control de almacén</Text></View><Pressable accessibilityRole="button" onPress={()=>navigate(screen==='Inicio'?'Dueño':'Inicio')}><Text style={s.headerAction}>{screen==='Inicio'?'Dueño':'Inicio'}</Text></Pressable></View>
- <View style={[s.connection,online===false&&s.offline]}><Text style={s.connectionText}>{!configured?'Conexión pendiente de configurar':online===null?'Comprobando conexión…':online?'Conectado · entorno de prueba':'Sin Internet · operaciones bloqueadas'}</Text></View>
+ <View style={[s.connection,online===false&&s.offline]}><Text style={s.connectionText}>{!configured?'Conexión pendiente de configurar':online===null?'Comprobando conexión…':online?'Conectado':'Sin Internet · trabajando en este equipo'}</Text></View>
  <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
+ <Text style={s.muted}>{syncState.ready?'Catálogo disponible en este equipo':'Primera descarga del catálogo pendiente: conecta Internet'} · {syncState.pending} operaciones por sincronizar</Text>
+ <Text style={s.muted}>Última sincronización: {syncState.lastSync?new Date(syncState.lastSync).toLocaleString():'Nunca'}. Las existencias incluyen movimientos locales; otros equipos pueden tener cambios pendientes.</Text>
+ <Button title={syncBusy?'Sincronizando…':'Sincronizar catálogo y movimientos'} onPress={()=>void syncNow()} disabled={busy||syncBusy} secondary/>
+ {syncState.conflicts.map(c=><View style={s.notice} key={c.id}><Text selectable>Conflicto conservado: {c.id}</Text><Text>{c.error}</Text><Text>Requiere revisión del dueño. No se ha descartado el movimiento.</Text></View>)}
+ {ownerToken&&syncState.conflicts.length>0&&<Button title="Reintentar tras revisar el conflicto" onPress={()=>{retryConflict();void syncNow();}} disabled={disabled}/>}
+
  {screen==='Inicio'?<><Text style={s.title}>Tu almacén, en orden.</Text><Text style={s.muted}>Escanea, localiza y registra cada movimiento. Registra las entradas físicas para comenzar las existencias desde cero.</Text><View style={s.grid}>{modules.map(m=><Pressable accessibilityRole="button" key={m.name} style={s.module} onPress={()=>navigate(m.name)}><Text style={s.moduleIcon}>{m.icon}</Text><Text style={s.moduleTitle}>{m.name}</Text><Text style={s.muted}>{m.hint}</Text></Pressable>)}</View><Button title="Buscar actualización" onPress={()=>void checkUpdates()} disabled={disabled} secondary/></>:<><Text style={s.title}>{screen==='Dueño'?'Administración del dueño':screen}</Text>
  {screen==='Consultar'&&<Text style={s.muted}>Consulta de solo lectura.</Text>}
  {screen==='Para enviar'&&<><Text style={s.muted}>Preparar no descuenta existencias. Mantén separados los paquetes de 2 y 1 piezas.</Text><Field label="Nombre de paquete / pedido" value={label} onChange={setLabel}/><Button title="Crear paquete" disabled={disabled||!label.trim()} onPress={()=>void run(async()=>{const p=await api<Package[]>('create_package',{label});setPackageId(p[0].id);setPackages(await api('picking'));setLabel('');})}/><Text style={s.label}>Paquete seleccionado</Text><View style={s.chips}>{packages.map(p=><Pressable accessibilityRole="button" key={p.id} onPress={()=>setPackageId(p.id)} style={[s.chip,packageId===p.id&&s.selected]}><Text style={packageId===p.id?s.chipSelected:s.chipText}>{p.label}</Text></Pressable>)}</View></>}
  {showScanner&&<><Field label="QR o código de barras" value={code} inputRef={scanRef} onChange={v=>{setCode(v);setLookup(null);}} onSubmit={text=>void search(text)}/><Button title="Buscar producto" onPress={()=>void search()} disabled={disabled||!code.trim()}/>
- {lookup&&(!product?<View style={s.card}><Text style={s.cardTitle}>{lookup.requires_review?'SKU pendiente de revisar en el catálogo':'Código no encontrado'}</Text><Text selectable>{code}</Text><Text style={s.muted}>Candidato: {baseCandidate(code)}</Text><Button title="Guardar en pendientes" disabled={disabled} secondary onPress={()=>void run(async()=>{await api('pending',{scanned_code:code.trim()});setMessage('Código guardado en pendientes.');})}/></View>:<View style={s.card}><Text selectable style={s.cardTitle}>{product.sku}</Text><Text>{product.description}</Text><Text style={s.muted}>Identificador: {product.internal_name||'Sin identificador'}</Text><Text style={s.muted}>Peso: {product.weight_kg??'No disponible'} kg</Text><Text style={s.stock}>{lookup.stock?`${lookup.stock.quantity} unidades`:'Sin existencias registradas'}</Text>{lookup.stock&&<Text>Fila {lookup.stock.row_number} · Posición {lookup.stock.position} · Nivel {lookup.stock.level}</Text>}
+ {lookup&&(!product?<View style={s.card}><Text style={s.cardTitle}>{lookup.requires_review?'SKU pendiente de revisar en el catálogo':'Código no encontrado'}</Text><Text selectable>{code}</Text><Text style={s.muted}>Candidato: {baseCandidate(code)}</Text><Button title="Guardar en pendientes" disabled={disabled} secondary onPress={()=>void run(async()=>{await api('pending',{scanned_code:code.trim()});setMessage(lastReceipt);})}/></View>:<View style={s.card}><Text selectable style={s.cardTitle}>{product.sku}</Text><Text>{product.description}</Text><Text style={s.muted}>Identificador: {product.internal_name||'Sin identificador'}</Text><Text style={s.muted}>Peso: {product.weight_kg??'No disponible'} kg</Text><Text style={s.stock}>{lookup.stock?`${lookup.stock.quantity} unidades`:'Sin existencias registradas'}</Text>{lookup.stock&&<Text>Fila {lookup.stock.row_number} · Posición {lookup.stock.position} · Nivel {lookup.stock.level}</Text>}
  {screen!=='Consultar'&&<>{screen!=='Reacomodo'&&<Field label="Unidades" value={units} onChange={setUnits} number/>}{['Productos','Reacomodo'].includes(screen)&&<><Field label="Fila (1–13)" value={row} onChange={setRow} number/><Field label="Posición (A–R)" value={position} onChange={v=>setPosition(v.toUpperCase())}/><Field label="Nivel (1–7)" value={level} onChange={setLevel} number/></>}
  <Button title={screen==='Para enviar'?'Agregar al paquete sin descontar':screen==='Salidas'?'Revisar salida':screen==='Reacomodo'?'Revisar reacomodo':'Revisar ingreso'} disabled={disabled||(screen==='Para enviar'&&!packageId)} onPress={()=>{
   if(screen==='Para enviar'){void run(async()=>{await api('add_line',{package_id:packageId,sku:product.sku,quantity:positiveUnits(units)});setPackages(await api('picking'));setLookup(null);setCode('');});}else requestMove();
@@ -113,7 +130,7 @@ export default function App(){
  {['Para enviar','Guías','Historial'].includes(screen)&&<Button title="Actualizar lista" onPress={()=>void refresh()} disabled={disabled} secondary/>}
  </>}
  {busy&&<ActivityIndicator size="large" color="#3e663f"/>}{!!message&&<View style={s.notice}><Text accessibilityLiveRegion="polite">{message}</Text></View>}
- <Text style={s.footer}>ANDROMEDA 2.0 · Prueba 0.3.0</Text>
+ <Text style={s.footer}>ANDROMEDA 2.0 · Versión 0.4.0 · Sincronización local</Text>
  </ScrollView>
  <Modal visible={!!confirmation} transparent animationType="fade" onRequestClose={()=>{if(!busy)setConfirmation(null);}}><View style={s.overlay}><View style={s.dialog}><Text style={s.cardTitle}>Confirmar</Text><Text>{confirmation?.text}</Text><Button title="Confirmar" disabled={busy} onPress={()=>{const fn=confirmation?.run;setConfirmation(null);void fn?.();}}/><Button title="Volver" secondary disabled={busy} onPress={()=>setConfirmation(null)}/></View></View></Modal>
  <Modal visible={!!editing} transparent animationType="fade" onRequestClose={()=>{if(!busy)setEditing(null);}}><View style={s.overlay}><ScrollView contentContainerStyle={s.dialog}><Text style={s.cardTitle}>Nombrar producto</Text><Text>{editing?.original_code}</Text>{!!message&&<Text>{message}</Text>}<Field label="SKU oficial" value={officialSku} onChange={setOfficialSku}/><Field label="Descripción" value={description} onChange={setDescription}/><Field label="Identificador en español (opcional)" value={internalName} onChange={setInternalName}/><Button title="Guardar en catálogo" disabled={busy||!description.trim()||!officialSku.trim()} onPress={()=>void run(async()=>{await api('owner_resolve',{owner_token:ownerToken,id:editing?.id,sku:officialSku.trim(),description:description.trim(),internal_name:internalName.trim()});setPending(await api('owner_pending',{owner_token:ownerToken}));setEditing(null);setMessage('Producto agregado al catálogo. Etiqueta imprimible pendiente de implementar.');})}/><Button title="Volver" disabled={busy} secondary onPress={()=>setEditing(null)}/></ScrollView></View></Modal>

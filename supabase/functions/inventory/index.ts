@@ -37,7 +37,18 @@ Deno.serve(async(req:Request)=>{
   const raw=await req.text();if(raw.length>32768)throw new Error('Solicitud demasiado grande');
   const b=JSON.parse(raw) as Record<string,unknown>;let result:unknown;
   switch(b.action){
-   case 'health': result={online:true,version:'0.2.0',stock_is_migrated:false};break;
+   case 'catalog_page': {
+    const cursor=typeof b.cursor==='string'?b.cursor:'';result=await db(`products?select=sku,description,internal_name,weight_kg&order=sku.asc&limit=500${cursor?'&sku=gt.'+encodeURIComponent(cursor):''}`);break;
+   }
+   case 'stock_page': {
+    const cursor=typeof b.cursor==='string'?b.cursor:'';result=await db(`stock?select=*&order=sku.asc&limit=500${cursor?'&sku=gt.'+encodeURIComponent(cursor):''}`);break;
+   }
+   case 'device_command': {
+    const request=b.request as Record<string,unknown>;
+    if(!request||typeof request!=='object'||!['move','pending','add_guide','create_package','add_line','prepare_line','remove_line'].includes(String(request.action)))throw new Error('Comando inválido');
+    result=await db('rpc/apply_device_command','POST',{p_id:uuid(b.id),p_request:request});break;
+   }
+   case 'health': result={online:true,version:'0.4.0',stock_is_migrated:false};break;
    case 'lookup': {
     const code=text(b.scanned_code);const base=code.replace(/-s\d+(?:-v\d+)*$/i,'');
     let found=await db(`products?sku=eq.${encodeURIComponent(code)}&select=*&limit=1`);
