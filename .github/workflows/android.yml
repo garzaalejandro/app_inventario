@@ -1,0 +1,70 @@
+name: APK Android - GitHub
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: preview
+    env:
+      CI: '1'
+      EXPO_NO_TELEMETRY: '1'
+      EAS_PROJECT_ID: ${{ vars.EAS_PROJECT_ID }}
+      EXPO_PUBLIC_API_URL: ${{ vars.EXPO_PUBLIC_API_URL }}
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Check backend configuration
+        shell: bash
+        run: |
+          if [ -z "$EXPO_PUBLIC_API_URL" ] || [ -z "$EXPO_PUBLIC_SUPABASE_ANON_KEY" ]; then
+            echo "::error::Configure EXPO_PUBLIC_API_URL in Actions variables and EXPO_PUBLIC_SUPABASE_ANON_KEY in Actions secrets (repository or preview environment). Never use service_role."
+            exit 1
+          fi
+      - run: npm ci --ignore-scripts
+      - run: npm run typecheck
+      - run: npm test
+      - name: Generate native Android project
+        run: npx expo prebuild --platform android --no-install
+      - name: Verify test signing configuration
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const gradle = fs.readFileSync('android/app/build.gradle', 'utf8');
+          if (!/release\s*\{[\s\S]*?signingConfig\s+signingConfigs\.debug/.test(gradle)) {
+            throw new Error('Expected Expo test signing configuration is missing; configure Android signing before building.');
+          }
+          NODE
+      - name: Build standalone test APK
+        working-directory: android
+        run: ./gradlew :app:assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a,armeabi-v7a
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ANDROMEDA-test-apk
+          path: android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 14
+      - name: Build notes
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'NOTES'
+          ### APK de primera revisión
+          Descarga ANDROMEDA-test-apk en Artifacts, extrae el ZIP e instala el APK en Android.
+          Es una compilación con firma de prueba. Antes de la distribución definitiva se debe conservar una clave privada de firma del cliente.
+          La compilación directa no requiere EXPO_TOKEN.
+          Sin EAS_PROJECT_ID, esta APK no recibe actualizaciones de Expo; vincular el proyecto y recompilar para habilitarlas.
+          No se ha importado el stock físico anterior.
+          NOTES
