@@ -1,0 +1,33 @@
+name: Actualizar app - nube
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    environment: preview
+    env:
+      EAS_PROJECT_ID: ${{ vars.EAS_PROJECT_ID }}
+      EXPO_PUBLIC_API_URL: ${{ vars.EXPO_PUBLIC_API_URL }}
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Check configuration
+        run: |
+          test -n "$EAS_PROJECT_ID" || { echo "::error::Falta EAS_PROJECT_ID"; exit 1; }
+          test -n "$EXPO_PUBLIC_API_URL" || exit 1
+          test -n "$EXPO_PUBLIC_SUPABASE_ANON_KEY" || exit 1
+      - run: npm ci --ignore-scripts
+      - run: npm run typecheck
+      - run: npm test
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+      - name: Publish Android preview update
+        run: eas update --platform android --channel preview --environment preview --message "GitHub ${{ github.sha }}" --non-interactive
