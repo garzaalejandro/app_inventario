@@ -1,5 +1,18 @@
 # ANDROMEDA 2.0
 
+## Descargar APK para Android
+
+### [⬇ Descargar ANDROMEDA — APK de prueba](https://github.com/garzaalejandro/app_inventario/releases/download/apk-prueba/ANDROMEDA-prueba.apk)
+
+El enlace estará disponible después de la primera compilación y publicación correcta.
+Si muestra 404, la APK aún no se ha publicado. No indica que la compilación terminó.
+
+[Ver estado de compilación](https://github.com/garzaalejandro/app_inventario/actions/workflows/android.yml) · [Ver versión de prueba](https://github.com/garzaalejandro/app_inventario/releases/tag/apk-prueba)
+
+APK con firma de prueba para revisión en Honeywell CT60 Android 11 y 13.
+El workflow actualiza este mismo enlace cuando publica una nueva APK correcta.
+
+
 Aplicación nueva de almacén con Expo SDK 54, React Native y TypeScript.
 Backend independiente en Supabase. El código anterior Flutter fue referencia,
 no es la aplicación activa de este repositorio.
