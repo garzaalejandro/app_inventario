@@ -6,12 +6,15 @@ on:
     paths:
       - '.github/workflows/android.yml'
       - 'app.config.ts'
+      - 'App.tsx'
+      - 'src/**'
+      - 'assets/**'
       - 'package-lock.json'
 permissions:
   contents: write
 concurrency:
   group: android-apk-publication
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   apk:
     runs-on: ubuntu-24.04

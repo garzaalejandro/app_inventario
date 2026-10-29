@@ -25,7 +25,7 @@ function Field({label,value,onChange,number=false,secret=false,onSubmit,inputRef
  const submitRef=useRef(onSubmit);submitRef.current=onSubmit;
  useEffect(()=>()=>{if(settle.current)clearTimeout(settle.current);},[]);
  const submit=(text:string)=>{if(settle.current)clearTimeout(settle.current);submitRef.current?.(text);};
- return <View style={s.field}><Text style={s.label}>{label}</Text><TextInput ref={inputRef} style={s.input} accessibilityLabel={label} value={value} onChangeText={text=>{if(settle.current)clearTimeout(settle.current);const clean=text.replace(/[\r\n]+/g,'');onChange(clean);if(/[\r\n]/.test(text))submit(clean);else if(inputRef&&clean.length>=4&&Math.abs(clean.length-value.length)>=4)settle.current=setTimeout(()=>submit(clean),250);}} keyboardType={number?'number-pad':'default'} secureTextEntry={secret} autoCorrect={false} autoCapitalize="none" onSubmitEditing={e=>submit(e.nativeEvent.text)} submitBehavior="submit" autoFocus={!!inputRef} returnKeyType="done"/></View>;
+ return <View style={s.field}><Text style={s.label}>{label}</Text><TextInput ref={inputRef} style={s.input} accessibilityLabel={label} value={value} onChangeText={text=>{if(settle.current)clearTimeout(settle.current);const clean=text.replace(/[\r\n]+/g,'');onChange(clean);if(/[\r\n]/.test(text))submit(clean);else if(inputRef&&clean.length>=4&&Math.abs(clean.length-value.length)>=4)settle.current=setTimeout(()=>submit(clean),250);}} keyboardType={number?'number-pad':'default'} secureTextEntry={secret} autoCorrect={false} autoCapitalize="none" onSubmitEditing={e=>submit(e.nativeEvent.text)} submitBehavior="submit" autoFocus={!!inputRef} selectTextOnFocus={!!inputRef} returnKeyType="done"/></View>;
 }
 export default function App(){
  const [syncState,setSyncState]=useState(()=>offlineStatus());
@@ -81,6 +81,7 @@ export default function App(){
   await run(async()=>{const result=await api<Lookup>('lookup',{scanned_code:scanned});setLookup(result);setOperation(Crypto.randomUUID());
    if(result.stock){setRow(String(result.stock.row_number));setPosition(result.stock.position);setLevel(String(result.stock.level));}
    else{setRow('1');setPosition('A');setLevel('1');}
+   scanRef.current?.setNativeProps({selection:{start:0,end:scanned.length}});
   });
  }
  function requestMove(){
