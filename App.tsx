@@ -4,7 +4,7 @@ import {StatusBar} from 'expo-status-bar';
 import {SafeAreaProvider,SafeAreaView} from 'react-native-safe-area-context';
 import * as Crypto from 'expo-crypto';
 import * as Updates from 'expo-updates';
-import {api,configured,offlineStatus,synchronize,lastReceipt,retryConflict,type Guide,type Lookup,type Movement,type Package,type Pending} from './src/api';
+import {api,configured,offlineStatus,synchronize,lastReceipt,retryConflict,type Guide,type Lookup,type Movement,type Package,type Pending,type Product} from './src/api';
 import {baseCandidate,positiveUnits,validateLocation,intakeDefaults,warehouseRows,warehousePositions,warehouseLevels,userMessage} from './src/domain.mjs';
 
 type Screen='Inicio'|'Consultar'|'Productos'|'Reacomodo'|'Salidas'|'Para enviar'|'Guías'|'Historial'|'Dueño';
@@ -52,6 +52,7 @@ export default function App(){
  const [busy,setBusy]=useState(false);const busyRef=useRef(false);
  const [online,setOnline]=useState<boolean|null>(null);const [message,setMessage]=useState('');
  const [code,setCode]=useState('');const [scannedCode,setScannedCode]=useState('');
+ const [nameQuery,setNameQuery]=useState('');const [nameResults,setNameResults]=useState<Product[]>([]);
  const [intakeOpen,setIntakeOpen]=useState(false);const [showOriginal,setShowOriginal]=useState(false);
  const [identifierEdit,setIdentifierEdit]=useState<{sku:string;name:string}|null>(null);const [lookup,setLookup]=useState<Lookup|null>(null);
  const [units,setUnits]=useState('1');const [row,setRow]=useState('1');const [position,setPosition]=useState('A');const [level,setLevel]=useState('1');
@@ -85,6 +86,7 @@ export default function App(){
  function navigate(next:Screen){
   if(busyRef.current)return;
   setScreen(next);setMessage('');setCode('');setLookup(null);setUnits('1');setScannedCode('');setIntakeOpen(false);setShowOriginal(false);
+  setNameQuery('');setNameResults([]);
   if(next!=='Dueño'){setOwnerToken('');setPin('');setPending([]);}
   void refresh(next);
  }
@@ -107,6 +109,10 @@ export default function App(){
    setScannedCode(scanned);setLookup(result);setCode('');setIntakeOpen(false);setShowOriginal(false);setOperation(Crypto.randomUUID());
    scanRef.current?.focus();
   });
+ }
+ async function searchByName(){
+  const query=nameQuery.trim();if(!query||busyRef.current||syncBusy)return;
+  await run(async()=>{const found=await api<Product[]>('product_search',{query});setNameResults(found);if(!found.length)setMessage(`No se encontraron productos para “${query}”.`);});
  }
  async function saveIdentifier(){
   const editing=identifierEdit;if(!editing)return;
@@ -147,6 +153,7 @@ export default function App(){
 
  {screen==='Inicio'?<><View style={s.hero}><Text style={s.eyebrow}>TU CENTRO DE OPERACIONES</Text><Text style={s.heroTitle}>Todo bajo control.</Text><Text style={s.heroText}>Cada producto, en su lugar. Registra y consulta tu almacén, incluso sin conexión.</Text><Pressable accessibilityRole="button" style={s.heroAction} onPress={()=>navigate('Productos')}><Text style={s.heroActionText}>＋  Registrar un ingreso</Text><Text style={s.heroArrow}>↗</Text></Pressable></View><View style={s.sectionRow}><Text style={s.sectionTitle}>Operaciones</Text><Text style={s.sectionMeta}>ALMACÉN</Text></View><View style={s.grid}>{modules.map(m=><Pressable accessibilityRole="button" key={m.name} style={s.module} onPress={()=>navigate(m.name)}><Text style={s.moduleIcon}>{m.icon}</Text><Text style={s.moduleTitle}>{m.name}</Text><Text style={s.moduleHint}>{m.hint}</Text><Text style={s.moduleArrow}>↗</Text></Pressable>)}</View><Button title="Buscar actualización" onPress={()=>void checkUpdates()} disabled={disabled} secondary/></>:<><Text style={s.title}>{screen==='Dueño'?'Administración del dueño':screen}</Text>
  {screen==='Consultar'&&<Text style={s.muted}>Consulta de solo lectura.</Text>}
+ {screen==='Consultar'&&<><Text style={s.muted}>Busca en todo el catálogo descargado, aunque el producto todavía no tenga existencias.</Text><Field label="Buscar por nombre o SKU" value={nameQuery} onChange={setNameQuery} onSubmit={()=>void searchByName()}/><Button title="Buscar en el catálogo" onPress={()=>void searchByName()} disabled={disabled||!nameQuery.trim()}/>{nameResults.map(item=><Pressable accessibilityRole="button" key={item.sku} style={s.card} onPress={()=>void search(item.sku)}><Text style={s.cardTitle}>{item.internal_name||item.description}</Text><Text style={s.muted}>SKU: {item.sku}{item.weight_kg==null?'':` · ${item.weight_kg} kg`}</Text></Pressable>)}</>}
  {screen==='Para enviar'&&<><Text style={s.muted}>Preparar no descuenta existencias. Mantén separados los paquetes de 2 y 1 piezas.</Text><Field label="Nombre de paquete / pedido" value={label} onChange={setLabel}/><Button title="Crear paquete" disabled={disabled||!label.trim()} onPress={()=>void run(async()=>{const p=await api<Package[]>('create_package',{label});setPackageId(p[0].id);setPackages(await api('picking'));setLabel('');})}/><Text style={s.label}>Paquete seleccionado</Text><View style={s.chips}>{packages.map(p=><Pressable accessibilityRole="button" key={p.id} onPress={()=>setPackageId(p.id)} style={[s.chip,packageId===p.id&&s.selected]}><Text style={packageId===p.id?s.chipSelected:s.chipText}>{p.label}</Text></Pressable>)}</View></>}
  {showScanner&&<><Field label="Escanea el código QR o de barras" value={code} inputRef={scanRef} onChange={setCode} onSubmit={text=>void search(text)} onAutoSubmit={text=>void search(text,true)}/><Button title="Buscar código escrito" onPress={()=>void search()} disabled={disabled||!code.trim()}/>
  {lookup&&(!product?<View style={s.card}><Text style={s.cardTitle}>{lookup.requires_review?'Código del catálogo por comprobar':'Código no encontrado en el catálogo descargado'}</Text><Text selectable>{scannedCode}</Text><Text style={s.muted}>Código base: {baseCandidate(scannedCode)}</Text><Text style={s.muted}>{lookup.local_only?'Sin conexión: se volverá a comprobar en la nube al sincronizar.':'No se encontró coincidencia en el catálogo.'}</Text><Button title="Guardar en pendientes" disabled={disabled} secondary onPress={()=>void run(async()=>{await api('pending',{scanned_code:scannedCode});setMessage(lastReceipt);})}/></View>:<View style={s.card}><Text selectable style={s.cardTitle}>{product.sku}</Text><Text style={s.recognized}>✓ Producto reconocido en el catálogo</Text>

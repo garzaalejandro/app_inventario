@@ -49,7 +49,7 @@ Deno.serve(async(req:Request)=>{
     if(!request||typeof request!=='object'||!['move','pending','add_guide','create_package','add_line','prepare_line','remove_line','set_identifier'].includes(String(request.action)))throw new Error('Comando inválido');
     result=await db('rpc/apply_device_command','POST',{p_id:uuid(b.id),p_request:request});break;
    }
-   case 'health': result={online:true,version:'0.4.1',stock_is_migrated:false,...await db('rpc/catalog_status','POST',{})};break;
+   case 'health': result={online:true,version:'0.4.2',stock_is_migrated:false,...await db('rpc/catalog_status','POST',{})};break;
    case 'lookup': {
     const code=text(b.scanned_code);const candidates=skuCandidates(code);const base=candidates.at(-1)!;
     let found=[];
@@ -57,6 +57,12 @@ Deno.serve(async(req:Request)=>{
     if(found.length){const stock=await db(`stock?sku=eq.${encodeURIComponent(found[0].sku)}&select=*&limit=1`);result={product:found[0],stock:stock[0]??null};}
     else {let staged=[];for(const candidate of candidates){staged=await db(`catalog_import?sku=eq.${encodeURIComponent(candidate)}&select=sku,requires_review&limit=1`);if(staged.length)break;}result={product:null,candidate:base,requires_review:staged.length>0};}
     break;
+   }
+   case 'product_search': {
+    const query=text(b.query,80).normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
+    const terms=query.match(/[a-z0-9]+/gi)??[];if(!terms.length)throw new Error('Escribe una palabra del nombre o del SKU.');
+    const filters=terms.map(term=>`or(description.ilike.*${term}*,internal_name.ilike.*${term}*,sku.ilike.*${term}*)`).join(',');
+    result=await db(`products?and=(${encodeURIComponent(filters)})&select=sku,description,internal_name,weight_kg,description_review,weight_review,reference_description&order=sku.asc&limit=50`);break;
    }
    case 'set_identifier': {
     result=await db('rpc/apply_device_command','POST',{p_id:uuid(b.operation_id),p_request:{action:'set_identifier',sku:text(b.sku),internal_name:typeof b.internal_name==='string'?b.internal_name.trim():''}});break;

@@ -99,6 +99,15 @@ export async function localApi<T>(action:string,payload:Request={}):Promise<T>{
   if(product)for(const c of commands()){const p=JSON.parse(c.request);if(p.action==='set_identifier'&&p.sku===product.sku)product.internal_name=p.internal_name||null;}
   return {product,stock:product?projectedStock(product.sku):null,candidate:baseCandidate(code),local_only:!connected} as T;
  }
+ if(action==='product_search'){
+  if(!read('ready',false))throw new Error('Primero descarga el catálogo con Internet desde Sincronizar.');
+  const query=String(payload.query??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+  const terms=query.match(/[a-z0-9]+/g)??[];
+  if(!terms.length)throw new Error('Escribe una palabra del nombre o del SKU.');
+  const where=terms.map(()=>`lower(data) LIKE ?`).join(' AND ');
+  const matches=db.getAllSync<{data:string}>(`SELECT data FROM products WHERE ${where} ORDER BY sku LIMIT 50`,...terms.map(term=>`%${term}%`));
+  return matches.map(row=>JSON.parse(row.data)) as T;
+ }
  if(action==='picking')return packages() as T;
  if(action==='guides'){
   const list=read<Guide[]>('guides',[]);for(const c of commands()){const p=JSON.parse(c.request);if(p.action==='add_guide')list.unshift({id:c.id,guide:p.guide,received_on:p.date});}return list as T;
