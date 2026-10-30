@@ -4,6 +4,6 @@ export type {Product,Stock,Lookup,Line,Package,Pending,Guide,Movement} from './t
 export {configured,remote as api} from './transport';
 let connected=false;
 export const lastReceipt='Confirmado en la nube.';
-export const offlineStatus=()=>({ready:true,lastSync:null as string|null,pending:0,conflicts:[] as {id:string;error:string|null}[],online:connected});
+export const offlineStatus=()=>({ready:true,lastSync:null as string|null,pending:0,conflicts:[] as {id:string;error:string|null}[],online:connected,catalogCount:0});
 export async function synchronize(_force=false){await remote('health');connected=true;}
 export function retryConflict(){}

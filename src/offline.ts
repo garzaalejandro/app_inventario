@@ -1,7 +1,7 @@
 import * as SQLite from 'expo-sqlite';
 import * as Crypto from 'expo-crypto';
 import {remote,TransportError,type Product,type Stock,type Package,type Guide} from './transport';
-import {baseCandidate,positiveUnits,validateLocation} from './domain.mjs';
+import {baseCandidate,skuCandidates,positiveUnits,validateLocation,validateInternalName} from './domain.mjs';
 const db=SQLite.openDatabaseSync('andromeda-v1.db');
 db.execSync(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
 CREATE TABLE IF NOT EXISTS products(sku TEXT PRIMARY KEY,data TEXT NOT NULL);
@@ -14,7 +14,7 @@ type Command={seq:number;id:string;request:string;status:string;error:string|nul
 const read=<T>(key:string,fallback:T):T=>{const row=db.getFirstSync<{data:string}>('SELECT data FROM meta WHERE key=?',key);return row?JSON.parse(row.data):fallback;};
 const save=(key:string,data:unknown)=>db.runSync('INSERT OR REPLACE INTO meta VALUES (?,?)',key,JSON.stringify(data));
 const commands=()=>db.getAllSync<Command>('SELECT * FROM outbox ORDER BY seq');
-export const offlineStatus=()=>({ready:read('ready',false),lastSync:read<string|null>('lastSync',null),pending:commands().length,conflicts:commands().filter(c=>c.status==='conflict'),online:connected});
+export const offlineStatus=()=>({ready:read('ready',false),lastSync:read<string|null>('lastSync',null),pending:commands().length,conflicts:commands().filter(c=>c.status==='conflict'),online:connected,catalogCount:db.getFirstSync<{total:number}>('SELECT count(*) AS total FROM products')?.total??0});
 let connected=false;let syncing:Promise<void>|null=null;
 export let lastReceipt='';
 function projectedStock(sku:string):Stock|null {
@@ -42,6 +42,7 @@ function acknowledge(c:Command,answer:any){
   if(p.action==='move'){
    db.runSync('INSERT OR REPLACE INTO stock VALUES (?,?)',p.sku,JSON.stringify(answer.stock));
   }
+  if(p.action==='set_identifier'&&answer.product)db.runSync('INSERT OR REPLACE INTO products VALUES (?,?)',p.sku,JSON.stringify(answer.product));
   if(p.action==='add_guide'){const list=read<Guide[]>('guides',[]);if(!list.some(g=>g.guide===p.guide))list.unshift({id:c.id,guide:p.guide,received_on:p.date});save('guides',list);}
   const list=read<Package[]>('picking',[]);
   if(p.action==='create_package')list.unshift({id:p.id,label:p.label,picking_lines:[]});
@@ -64,15 +65,16 @@ async function pages(action:string,table:'products'|'stock'|'download'){
 export function synchronize(forceCatalog=false):Promise<void>{
  if(syncing)return syncing;
  syncing=(async()=>{
-  await remote('health');connected=true;
+  const health=await remote<{catalog_count?:number;catalog_revision?:number}>('health');connected=true;
   for(const c of commands()){
    if(c.status==='conflict')throw new Error('Hay un conflicto pendiente. Revisa Sincronización antes de continuar.');
    try{const answer=await remote('device_command',{id:c.id,request:JSON.parse(c.request)});acknowledge(c,answer);}
    catch(e){if(e instanceof TransportError&&!e.retryable)db.runSync("UPDATE outbox SET status='conflict',error=? WHERE id=?",e.message,c.id);throw e;}
   }
-  if(forceCatalog||!read('ready',false)||Date.now()-read('catalogAt',0)>86400000){
-   db.execSync('DELETE FROM download');await pages('catalog_page','download');
-   db.withTransactionSync(()=>{db.execSync('DELETE FROM products; INSERT INTO products SELECT * FROM download; DELETE FROM download;');save('ready',true);save('catalogAt',Date.now());});
+  if(forceCatalog||!read('ready',false)||read('catalogRevision',0)!==(health.catalog_revision??1)||Date.now()-read('catalogAt',0)>86400000){
+   db.execSync('DELETE FROM download');const downloaded=await pages('catalog_page','download');
+   if(health.catalog_count!==undefined&&downloaded!==health.catalog_count)throw new Error('La descarga del catálogo quedó incompleta. Conservamos los datos anteriores; vuelve a sincronizar.');
+   db.withTransactionSync(()=>{db.execSync('DELETE FROM products; INSERT INTO products SELECT * FROM download; DELETE FROM download;');save('ready',true);save('catalogAt',Date.now());save('catalogRevision',health.catalog_revision??1);});
   }
   db.execSync('DELETE FROM download');await pages('stock_page','download');
   db.withTransactionSync(()=>{db.execSync('DELETE FROM stock; INSERT INTO stock SELECT * FROM download; DELETE FROM download;');});
@@ -86,20 +88,27 @@ export async function localApi<T>(action:string,payload:Request={}):Promise<T>{
  if(action==='health')return {online:connected} as T;
  if(action==='lookup'){
   if(!read('ready',false))throw new Error('Primero descarga el catálogo con Internet desde Sincronizar.');
-  const code=String(payload.scanned_code).trim();let row=db.getFirstSync<{data:string}>('SELECT data FROM products WHERE sku=?',code);
-  if(!row)row=db.getFirstSync<{data:string}>('SELECT data FROM products WHERE sku=?',baseCandidate(code));
-  const product:Product|null=row?JSON.parse(row.data):null;
-  return {product,stock:product?projectedStock(product.sku):null,candidate:baseCandidate(code)} as T;
+  const code=String(payload.scanned_code).trim();let row:null|{data:string}=null;
+  for(const candidate of skuCandidates(code)){row=db.getFirstSync<{data:string}>('SELECT data FROM products WHERE sku=?',candidate);if(row)break;}
+  let product:Product|null=row?JSON.parse(row.data):null;
+  if(!product&&connected){
+   try {const found=await remote<{product:Product|null;stock?:Stock|null}>('lookup',{scanned_code:code});
+    product=found.product;if(product){db.withTransactionSync(()=>{db.runSync('INSERT OR REPLACE INTO products VALUES (?,?)',product!.sku,JSON.stringify(product));if(found.stock)db.runSync('INSERT OR REPLACE INTO stock VALUES (?,?)',product!.sku,JSON.stringify(found.stock));});}
+   }catch{connected=false;}
+  }
+  if(product)for(const c of commands()){const p=JSON.parse(c.request);if(p.action==='set_identifier'&&p.sku===product.sku)product.internal_name=p.internal_name||null;}
+  return {product,stock:product?projectedStock(product.sku):null,candidate:baseCandidate(code),local_only:!connected} as T;
  }
  if(action==='picking')return packages() as T;
  if(action==='guides'){
   const list=read<Guide[]>('guides',[]);for(const c of commands()){const p=JSON.parse(c.request);if(p.action==='add_guide')list.unshift({id:c.id,guide:p.guide,received_on:p.date});}return list as T;
  }
  if(action==='history')return [...commands().filter(c=>JSON.parse(c.request).action==='move').map(c=>({...JSON.parse(c.request),id:c.id,created_at:c.created_at})),...read<any[]>('history',[])] as T;
- if(!['move','pending','add_guide','create_package','add_line','prepare_line','remove_line'].includes(action))throw new Error('Acción no disponible sin conexión.');
+ if(!['move','pending','add_guide','create_package','add_line','prepare_line','remove_line','set_identifier'].includes(action))throw new Error('Acción no disponible sin conexión.');
  if(syncing)throw new Error('Sincronización en curso; espera a que termine antes de guardar.');
  if(commands().some(c=>c.status==='conflict'))throw new Error('Resuelve el conflicto de sincronización antes de registrar más operaciones.');
  const p:Request={...payload,action};const id=String(payload.operation_id??Crypto.randomUUID());
+ if(action==='set_identifier'){p.internal_name=validateInternalName(p.internal_name);if(!db.getFirstSync('SELECT sku FROM products WHERE sku=?',p.sku))throw new Error('Primero consulta un producto del catálogo.');}
  if(action==='move'){
   if(!['in','out','relocate'].includes(p.kind))throw new Error('Movimiento inválido');
   if(p.kind!=='relocate')p.units=positiveUnits(p.units);

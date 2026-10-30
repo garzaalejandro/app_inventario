@@ -1,4 +1,4 @@
-# Estado de entrega 0.4.0
+# Estado de entrega 0.4.1
 
 No etiquetar como producción aprobada sin completar los puntos siguientes.
 
@@ -9,12 +9,16 @@ No etiquetar como producción aprobada sin completar los puntos siguientes.
 - Guías, desconocidos y paquetes persistidos para envío posterior.
 - Replay de comandos con un identificador único y comprobación de payload.
 - Rechazos del servidor conservados como conflictos, sin descarte automático.
+- Búsqueda exacta primero y eliminación progresiva de sufijos finales `-S<n>` / `-V<n>`.
+- Interfaz y mensajes en español; identificador en español puede editarlo el personal.
+- Captura offline en Android con persistencia local; sincronización cuando vuelve Internet.
+- Cantidad reiniciada a 1 para cada lectura y ubicación con selectores.
 - Catálogo de 27,388 SKU; los datos discordantes permanecen en revisión.
 - Diez pruebas automatizadas y comprobación TypeScript. Export Android realizada.
 
 ## Antes de la primera operación
-Instalar APK 0.4.0, conectar Wi-Fi y Sincronizar. Esperar la descarga completa.
-Desactivar Internet solo cuando aparezca catálogo disponible y fecha de sincronización.
+Instalar APK 0.4.1, conectar Wi-Fi y Sincronizar. Esperar la descarga completa.
+La operación offline requiere haber descargado el catálogo al menos una vez.
 Confirmaciones indican guardado local; revisar contador de operaciones pendientes.
 Sincronizar antes y después de cada turno. No borrar datos ni desinstalar con cola pendiente.
 Los equipos desconectados no conocen cambios del otro; un despacho puede generar conflicto global.
@@ -31,7 +35,7 @@ El panel de dueño necesita conexión y un PIN configurado por vía protegida; n
 7. Actualización instalada sobre la anterior conserva base y cola.
 
 ## Bloqueos para una entrega definitiva
-- Verificar la compilación nativa de 0.4.0 y ejecutar aceptación física en Android 11/13.
+- Verificar la compilación nativa de 0.4.1 y ejecutar aceptación física en Android 11/13.
 - Configurar y custodiar firma Android definitiva del cliente; el workflow actual tiene firma de prueba.
 - Confirmar UUID EAS y publicar una actualización compatible de prueba; comprobarla en los terminales.
 - Configurar PIN privado del dueño sin incluirlo en código/README.

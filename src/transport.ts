@@ -1,6 +1,7 @@
-export interface Product { sku:string; description:string; internal_name:string|null; weight_kg:number|null }
+import {userMessage} from './domain.mjs';
+export interface Product { sku:string; description:string; internal_name:string|null; weight_kg:number|null; description_review?:boolean; weight_review?:boolean; reference_description?:string|null }
 export interface Stock { quantity:number; row_number:number; position:string; level:number }
-export interface Lookup { product:Product|null; stock?:Stock|null; requires_review?:boolean; candidate?:string }
+export interface Lookup { product:Product|null; stock?:Stock|null; requires_review?:boolean; candidate?:string; local_only?:boolean }
 export interface Line { id:string;sku:string;quantity:number;prepared:boolean }
 export interface Package { id:string;label:string;picking_lines:Line[] }
 export interface Pending { id:string;original_code:string;candidate_sku:string }
@@ -17,8 +18,8 @@ export async function remote<T>(action:string,payload:Record<string,unknown>={})
  try{
   const res=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${key}`,apikey:key},body:JSON.stringify({action,...payload}),signal:controller.signal});
   const body=await res.json();
-  if(!res.ok||body.error)throw new TransportError(body.error??'No se completó la operación.',res.status>=500||res.status===429);
-  if(body.data?.error)throw new Error(body.data.error);
+  if(!res.ok||body.error)throw new TransportError(userMessage(body.error??'No se completó la operación.'),res.status>=500||res.status===429);
+  if(body.data?.error)throw new Error(userMessage(body.data.error));
   return body.data as T;
  }catch(e){
   if(e instanceof Error&&(e.name==='AbortError'||e.message.includes('Network request failed')||e.message.includes('Failed to fetch')))throw new TransportError('Sin conexión. La operación permanece en el equipo.',true);

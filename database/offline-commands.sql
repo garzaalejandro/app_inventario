@@ -7,9 +7,16 @@ create table if not exists public.device_commands (
 alter table public.device_commands enable row level security;
 revoke all on public.device_commands from public,anon,authenticated;
 grant all on public.device_commands to service_role;
+create table if not exists public.product_identifier_changes (
+ id uuid primary key, sku text not null references public.products(sku),
+ previous_name text, next_name text, created_at timestamptz not null default now()
+);
+alter table public.product_identifier_changes enable row level security;
+revoke all on public.product_identifier_changes from public,anon,authenticated;
+grant all on public.product_identifier_changes to service_role;
 create or replace function public.apply_device_command(p_id uuid,p_request jsonb)
 returns jsonb language plpgsql security invoker set search_path='' as $$
-declare old public.device_commands%rowtype; answer jsonb; action text:=p_request->>'action';
+declare previous_identifier text; old public.device_commands%rowtype; answer jsonb; action text:=p_request->>'action';
 begin
  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(p_id::text,71));
  select * into old from public.device_commands where id=p_id;
@@ -22,9 +29,16 @@ begin
   answer:=public.record_movement(p_id,p_request->>'sku',p_request->>'kind',(p_request->>'units')::integer,
    (p_request->>'row')::integer,p_request->>'position',(p_request->>'level')::integer,p_request->>'scanned_code');
   answer:=answer||pg_catalog.jsonb_build_object('stock',(select pg_catalog.to_jsonb(s) from public.stock s where sku=p_request->>'sku'));
+ when 'set_identifier' then
+  if p_request->>'internal_name' is null or length(trim(p_request->>'internal_name'))>120 then raise exception 'Identificador inválido: máximo 120 caracteres';end if;
+  select internal_name into previous_identifier from public.products where sku=p_request->>'sku' for update;
+  if not found then raise exception 'Producto no encontrado en el catálogo';end if;
+  update public.products set internal_name=nullif(trim(p_request->>'internal_name'),'') where sku=p_request->>'sku';
+  insert into public.product_identifier_changes(id,sku,previous_name,next_name) values(p_id,p_request->>'sku',previous_identifier,nullif(trim(p_request->>'internal_name'),''));
+  answer:=pg_catalog.jsonb_build_object('product',(select pg_catalog.to_jsonb(p) from public.products p where sku=p_request->>'sku'));
  when 'pending' then
   insert into public.unknown_codes(original_code,candidate_sku)
-  values(p_request->>'scanned_code',pg_catalog.regexp_replace(p_request->>'scanned_code','-s[0-9]+(-v[0-9]+)*$','','i'))
+  values(p_request->>'scanned_code',pg_catalog.regexp_replace(p_request->>'scanned_code','(-[sv][0-9]+)+$','','i'))
   on conflict(original_code) do nothing; answer:='{}';
  when 'add_guide' then
   if (p_request->>'date')::date>current_date then raise exception 'Fecha futura'; end if;

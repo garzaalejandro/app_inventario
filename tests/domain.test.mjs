@@ -1,15 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {baseCandidate,resolveSku,positiveUnits,validateLocation,packageTotals} from '../src/domain.mjs';
+import {baseCandidate,skuCandidates,resolveSku,positiveUnits,validateLocation,packageTotals} from '../src/domain.mjs';
 test('Mantener SKU legítimo y retirar solo sufijos finales',()=>{
  assert.equal(baseCandidate('ZXDGTZHGR20-10001V0-S1'),'ZXDGTZHGR20-10001V0');
  assert.equal(baseCandidate('AB.C/V1-s4-v01-v02'),'AB.C/V1');
- assert.equal(baseCandidate('ABC-V01'),'ABC-V01');
+ assert.equal(baseCandidate('ABC-V01'),'ABC');
  assert.equal(baseCandidate('ABC-S1-OTHER'),'ABC-S1-OTHER');
+ assert.deepEqual(skuCandidates('ZXDGTZHGR20-10001V0-S1'),['ZXDGTZHGR20-10001V0-S1','ZXDGTZHGR20-10001V0']);
+ assert.deepEqual(skuCandidates('ZXDGTZHGR20-10001V0-S1-V01-V02'),['ZXDGTZHGR20-10001V0-S1-V01-V02','ZXDGTZHGR20-10001V0-S1-V01','ZXDGTZHGR20-10001V0-S1','ZXDGTZHGR20-10001V0']);
 });
 test('Preferir coincidencia exacta a inferencia',()=>{
  assert.equal(resolveSku('ABC-S1',['ABC','ABC-S1']),'ABC-S1');
- assert.equal(resolveSku('ABC-S4-V01-V02',['ABC']),'ABC');
+ assert.equal(resolveSku('ZXDGTZHGR20-10001V0-S1',['ZXDGTZHGR20-10001V0']),'ZXDGTZHGR20-10001V0');
+ assert.equal(resolveSku('ABC-S4-V01-V02',['ABC-S4','ABC']),'ABC-S4');
+ assert.equal(resolveSku('ABC-V01',['ABC']),'ABC');
  assert.equal(resolveSku('XYZ-S1',['ABC']),null);
 });
 test('Rechazar cantidades parciales, negativas, vacías y no numéricas',()=>{

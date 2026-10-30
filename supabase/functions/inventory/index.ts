@@ -14,6 +14,7 @@ function text(v:unknown,max=240):string {
  if(typeof v!=='string'||!v.trim()||v.trim().length>max)throw new Error('Texto inválido');
  return v.trim();
 }
+function skuCandidates(code:string){const candidates=[code];while(/-[sv]\d+$/i.test(candidates.at(-1)!))candidates.push(candidates.at(-1)!.replace(/-[sv]\d+$/i,''));return [...new Set(candidates)];}
 function integer(v:unknown,min:number,max:number):number {
  if(typeof v!=='number'||!Number.isInteger(v)||v<min||v>max)throw new Error('Cantidad o ubicación inválida');
  return v;
@@ -38,27 +39,30 @@ Deno.serve(async(req:Request)=>{
   const b=JSON.parse(raw) as Record<string,unknown>;let result:unknown;
   switch(b.action){
    case 'catalog_page': {
-    const cursor=typeof b.cursor==='string'?b.cursor:'';result=await db(`products?select=sku,description,internal_name,weight_kg&order=sku.asc&limit=500${cursor?'&sku=gt.'+encodeURIComponent(cursor):''}`);break;
+    const cursor=typeof b.cursor==='string'?b.cursor:'';result=await db(`products?select=sku,description,internal_name,weight_kg,description_review,weight_review,reference_description&order=sku.asc&limit=500${cursor?'&sku=gt.'+encodeURIComponent(cursor):''}`);break;
    }
    case 'stock_page': {
     const cursor=typeof b.cursor==='string'?b.cursor:'';result=await db(`stock?select=*&order=sku.asc&limit=500${cursor?'&sku=gt.'+encodeURIComponent(cursor):''}`);break;
    }
    case 'device_command': {
     const request=b.request as Record<string,unknown>;
-    if(!request||typeof request!=='object'||!['move','pending','add_guide','create_package','add_line','prepare_line','remove_line'].includes(String(request.action)))throw new Error('Comando inválido');
+    if(!request||typeof request!=='object'||!['move','pending','add_guide','create_package','add_line','prepare_line','remove_line','set_identifier'].includes(String(request.action)))throw new Error('Comando inválido');
     result=await db('rpc/apply_device_command','POST',{p_id:uuid(b.id),p_request:request});break;
    }
-   case 'health': result={online:true,version:'0.4.0',stock_is_migrated:false};break;
+   case 'health': result={online:true,version:'0.4.1',stock_is_migrated:false,...await db('rpc/catalog_status','POST',{})};break;
    case 'lookup': {
-    const code=text(b.scanned_code);const base=code.replace(/-s\d+(?:-v\d+)*$/i,'');
-    let found=await db(`products?sku=eq.${encodeURIComponent(code)}&select=*&limit=1`);
-    if(!found.length&&base!==code)found=await db(`products?sku=eq.${encodeURIComponent(base)}&select=*&limit=1`);
+    const code=text(b.scanned_code);const candidates=skuCandidates(code);const base=candidates.at(-1)!;
+    let found=[];
+    for(const candidate of candidates){found=await db(`products?sku=eq.${encodeURIComponent(candidate)}&select=*&limit=1`);if(found.length)break;}
     if(found.length){const stock=await db(`stock?sku=eq.${encodeURIComponent(found[0].sku)}&select=*&limit=1`);result={product:found[0],stock:stock[0]??null};}
-    else {let staged=await db(`catalog_import?sku=eq.${encodeURIComponent(code)}&select=sku,requires_review&limit=1`);if(!staged.length)staged=await db(`catalog_import?sku=eq.${encodeURIComponent(base)}&select=sku,requires_review&limit=1`);result={product:null,candidate:base,requires_review:staged.length>0};}
+    else {let staged=[];for(const candidate of candidates){staged=await db(`catalog_import?sku=eq.${encodeURIComponent(candidate)}&select=sku,requires_review&limit=1`);if(staged.length)break;}result={product:null,candidate:base,requires_review:staged.length>0};}
     break;
    }
+   case 'set_identifier': {
+    result=await db('rpc/apply_device_command','POST',{p_id:uuid(b.operation_id),p_request:{action:'set_identifier',sku:text(b.sku),internal_name:typeof b.internal_name==='string'?b.internal_name.trim():''}});break;
+   }
    case 'pending': {
-    const code=text(b.scanned_code);result=await db('unknown_codes?on_conflict=original_code','POST',{original_code:code,candidate_sku:code.replace(/-s\d+(?:-v\d+)*$/i,'')});break;
+    const code=text(b.scanned_code);result=await db('unknown_codes?on_conflict=original_code','POST',{original_code:code,candidate_sku:skuCandidates(code).at(-1)});break;
    }
    case 'move': {
     const kind=text(b.kind);if(!['in','out','relocate'].includes(kind))throw new Error('Movimiento inválido');
