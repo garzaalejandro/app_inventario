@@ -1,15 +1,19 @@
 # ANDROMEDA 2.0
 
+### 📲 APK para Android · versión 0.4.2
+
+## [⬇️ Descargar ANDROMEDA 2.0](https://github.com/garzaalejandro/app_inventario/releases/download/apk-prueba/ANDROMEDA-prueba.apk)
+
+[Ver lanzamientos](https://github.com/garzaalejandro/app_inventario/releases/tag/apk-prueba) · [Ver compilación en GitHub Actions](https://github.com/garzaalejandro/app_inventario/actions/runs/40999581671)
+
 Aplicación nueva de almacén en Expo, React Native y TypeScript, con Supabase.
 La app Flutter anterior solo se tomó como referencia. No se modifica el Drive,
 el inventario anterior ni Firebase.
 
 ## Descargar la APK
 
-La compilación de prueba más reciente aparece en [Lanzamientos](https://github.com/garzaalejandro/app_inventario/releases/download/apk-prueba/ANDROMEDA-prueba.apk).
-El archivo instalable se publica como `ANDROMEDA-prueba.apk` cuando termina el
-workflow de GitHub Actions. Se instala directamente en los Honeywell; no requiere
-Google Play. La APK de prueba usa firma de prueba.
+La APK se instala directamente en los Honeywell; no requiere Google Play. Esta
+es una compilación de prueba con firma de prueba.
 
 ## Ejecutar en desarrollo
 
@@ -29,6 +33,8 @@ Primero se busca el código escaneado completo. Si no existe, se prueban los
 sufijos finales de empaque `-S1`, `-S4`, `-V01` y sus combinaciones, quitando
 uno por vez desde el final. Un SKU exacto que termina en `-S1` conserva prioridad.
 No se modifican el SKU del catálogo ni el código original del escaneo.
+En **Consultar** también se puede buscar por palabras del nombre o por SKU dentro
+del catálogo descargado, aunque el producto todavía no tenga existencias.
 
 ## Operación
 
