@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: preview
     env:
-      EAS_PROJECT_ID: ${{ vars.EAS_PROJECT_ID }}
+      EAS_PROJECT_ID: ${{ vars.EAS_PROJECT_ID || '5724e919-fa37-46e4-98fd-0e75f146833a' }}
       EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL || vars.EXPO_PUBLIC_API_URL || 'https://jfbiqsqrsbggppinmtbz.supabase.co/functions/v1/inventory' }}
       EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
     steps:

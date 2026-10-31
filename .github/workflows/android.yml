@@ -24,7 +24,7 @@ jobs:
     env:
       CI: '1'
       EXPO_NO_TELEMETRY: '1'
-      EAS_PROJECT_ID: ${{ vars.EAS_PROJECT_ID }}
+      EAS_PROJECT_ID: ${{ vars.EAS_PROJECT_ID || '5724e919-fa37-46e4-98fd-0e75f146833a' }}
       EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL || vars.EXPO_PUBLIC_API_URL || 'https://jfbiqsqrsbggppinmtbz.supabase.co/functions/v1/inventory' }}
       EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
     steps:
@@ -93,7 +93,7 @@ jobs:
           Descarga ANDROMEDA-test-apk en Artifacts, extrae el ZIP e instala el APK en Android.
           Es una compilación con firma de prueba. Antes de la distribución definitiva se debe conservar una clave privada de firma del cliente.
           La compilación directa no requiere EXPO_TOKEN.
-          Sin EAS_PROJECT_ID, esta APK no recibe actualizaciones de Expo; vincular el proyecto y recompilar para habilitarlas.
+          APK vinculada al proyecto EAS configurado; admite actualizaciones OTA del canal preview.
           No se ha importado el stock físico anterior.
           NOTES
 
