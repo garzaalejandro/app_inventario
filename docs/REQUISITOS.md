@@ -52,3 +52,4 @@ Escanear exacto y con sufijo; código desconocido; sumar 1 + 2 = 3; localizar;
 consultar sin editar; reubicar sin cambiar stock; preparar 2 + 1 sin descontar;
 salida y reintento sin doble descuento; dos terminales compitiendo por última
 unidad; apagar Internet y verificar que no confirme ninguna operación.
+- El dueño puede cambiar su PIN desde Administración, verificando el PIN actual; el hash permanece en Supabase y se invalidan sesiones anteriores.

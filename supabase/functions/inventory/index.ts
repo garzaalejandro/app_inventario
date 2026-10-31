@@ -86,6 +86,15 @@ Deno.serve(async(req:Request)=>{
    case 'remove_line': result=await db(`picking_lines?id=eq.${uuid(b.line_id)}`,'DELETE');break;
    case 'history': result=await db('movements?select=*&order=created_at.desc&limit=100');break;
    case 'owner_login': result=await db('rpc/owner_login','POST',{p_pin:text(b.pin,20)});break;
+   case 'owner_change_pin': {
+    await owner(b);
+    const ownerToken=uuid(b.owner_token);
+    const currentPin=text(b.current_pin,20),newPin=text(b.new_pin,12);
+    if(!/^\\d{4,12}$/.test(newPin))throw new Error('El PIN nuevo debe tener entre 4 y 12 dígitos.');
+    const changed=await db('rpc/change_owner_pin','POST',{p_owner_token:ownerToken,p_current_pin:currentPin,p_new_pin:newPin});
+    if(changed?.error)throw new Error(changed.error);
+    result=changed;break;
+   }
    case 'owner_pending': await owner(b);result=await db('unknown_codes?resolved_at=is.null&select=*&order=created_at.desc&limit=200');break;
    case 'owner_resolve': {
     await owner(b);
