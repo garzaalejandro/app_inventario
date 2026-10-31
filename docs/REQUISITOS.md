@@ -52,4 +52,12 @@ Escanear exacto y con sufijo; código desconocido; sumar 1 + 2 = 3; localizar;
 consultar sin editar; reubicar sin cambiar stock; preparar 2 + 1 sin descontar;
 salida y reintento sin doble descuento; dos terminales compitiendo por última
 unidad; apagar Internet y verificar que no confirme ninguna operación.
-- El dueño puede cambiar su PIN desde Administración, verificando el PIN actual; el hash permanece en Supabase y se invalidan sesiones anteriores.
+
+## Alta de productos desde Google Sheets (dueño)
+
+1. En la computadora, abre la pestaña `unique` y selecciona únicamente las columnas A:C (SKU, descripción y peso) de las filas nuevas debajo del rótulo de productos nuevos.
+2. En ANDROMEDA, entra a **Dueño** e inicia sesión con el PIN del dueño.
+3. Pega las filas copiadas en **Agregar productos nuevos desde Google Sheets** y pulsa **Importar productos nuevos**.
+4. La app informa cuántos SKU se agregaron, cuántos ya existían y cuántas filas se omitieron; después sincroniza el catálogo.
+
+La importación requiere Internet y el PIN del dueño. Solo inserta SKU inexistentes: no sobrescribe descripciones, identificadores, existencias ni ubicaciones. El catálogo se actualiza al sincronizar los dispositivos.

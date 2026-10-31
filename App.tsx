@@ -60,7 +60,7 @@ export default function App(){
  const [packages,setPackages]=useState<Package[]>([]);const [packageId,setPackageId]=useState('');const [label,setLabel]=useState('');
  const [guides,setGuides]=useState<Guide[]>([]);const [history,setHistory]=useState<Movement[]>([]);
  const [date,setDate]=useState(()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;});
- const [pin,setPin]=useState('');const [ownerToken,setOwnerToken]=useState('');const [pending,setPending]=useState<Pending[]>([]);
+ const [pin,setPin]=useState('');const [ownerToken,setOwnerToken]=useState('');const [pending,setPending]=useState<Pending[]>([]);const [catalogPaste,setCatalogPaste]=useState('');
  const [pinChangeOpen,setPinChangeOpen]=useState(false);const [currentPin,setCurrentPin]=useState('');const [newPin,setNewPin]=useState('');const [confirmNewPin,setConfirmNewPin]=useState('');
  const [editing,setEditing]=useState<Pending|null>(null);const [officialSku,setOfficialSku]=useState('');const [description,setDescription]=useState('');const [internalName,setInternalName]=useState('');
  const [confirmation,setConfirmation]=useState<{text:string;run:()=>Promise<void>}|null>(null);
@@ -114,6 +114,27 @@ export default function App(){
  async function searchByName(){
   const query=nameQuery.trim();if(!query||busyRef.current||syncBusy)return;
   await run(async()=>{const found=await api<Product[]>('product_search',{query});setNameResults(found);if(!found.length)setMessage(`No se encontraron productos para “${query}”.`);});
+ }
+ async function importCatalogPaste(){
+  if(!ownerToken||!catalogPaste.trim())return;
+  const lines=catalogPaste.replace(/^\uFEFF/,'').split(/\r?\n/).filter(line=>line.trim());
+  const records:{sku:string;description:string;weight_kg:number|null}[]=[];let skipped=0;
+  for(const line of lines){
+   const cells=line.split('\t');if(cells.length<2){skipped++;continue;}
+   const sku=cells[0].trim();const description=cells[1].trim();
+   if(/^sku$/i.test(sku)&&/producto|description/i.test(description)){skipped++;continue;}
+   const rawWeight=(cells[2]??'').trim();const normalizedWeight=rawWeight.replace(/\s/g,'').replace(/,(?=\d{1,2}$)/,'.');
+   const weight=normalizedWeight===''?null:Number(normalizedWeight);
+   if(!sku||sku.length>120||!description||description.length>2000||(weight!==null&&(!Number.isFinite(weight)||weight<0))){skipped++;continue;}
+   records.push({sku,description,weight_kg:weight});
+  }
+  if(!records.length){setMessage('No encontré filas válidas. Copia las columnas SKU, descripción y peso desde Sheets.');return;}
+  await run(async()=>{
+   let inserted=0;
+   for(let i=0;i<records.length;i+=25){const result=await api<{inserted:number}>('owner_import_products',{owner_token:ownerToken,products:records.slice(i,i+25)});inserted+=result.inserted;}
+   setCatalogPaste('');await synchronize(true);setSyncState(offlineStatus());setPending(await api<Pending[]>('owner_pending',{owner_token:ownerToken}));
+   setMessage(`Importación lista: ${inserted} productos nuevos agregados; ${records.length-inserted} SKU ya existían y ${skipped} filas se omitieron. Catálogo sincronizado.`);
+  });
  }
  async function saveIdentifier(){
   const editing=identifierEdit;if(!editing)return;
@@ -182,7 +203,7 @@ export default function App(){
  {screen==='Para enviar'&&packages.map(p=><View key={p.id} style={s.card}><Text style={s.cardTitle}>{p.label}</Text>{p.picking_lines?.map(line=><View key={line.id} style={s.line}><View style={s.flex}><Text selectable>{line.sku}</Text><Text style={s.stock}>{line.quantity} piezas</Text><Text>{line.prepared?'Preparado':'Por localizar'}</Text></View><View><Button title={line.prepared?'Desmarcar':'Preparado'} secondary disabled={disabled} onPress={()=>void run(async()=>{await api('prepare_line',{line_id:line.id,prepared:!line.prepared});setPackages(await api('picking'));})}/><Button title="Quitar de lista" secondary disabled={disabled} onPress={()=>setConfirmation({text:'Quitar esta línea de preparación. No modifica el stock.',run:async()=>{await run(async()=>{await api('remove_line',{line_id:line.id});setPackages(await api('picking'));});}})}/></View></View>)}</View>)}
  {screen==='Guías'&&<><Text style={s.muted}>Registrar una guía no suma existencias.</Text><Field label="Número de guía" value={code} inputRef={scanRef} onChange={setCode} onSubmit={text=>void registerGuide(text)}/><Field label="Fecha de recepción (AAAA-MM-DD)" value={date} onChange={setDate}/><Button title="Registrar guía" disabled={disabled||!code.trim()} onPress={()=>void registerGuide()}/>{guides.map(g=><View style={s.card} key={g.id}><Text style={s.cardTitle}>{g.guide}</Text><Text>{g.received_on}</Text></View>)}</>}
  {screen==='Historial'&&history.map(m=><View style={s.card} key={m.id}><Text style={s.cardTitle}>{m.sku}</Text><Text>{m.kind==='in'?'Ingreso':m.kind==='out'?'Salida':'Reacomodo'} · {m.units} unidades</Text><Text style={s.muted}>{new Date(m.created_at).toLocaleString('es-MX')}</Text></View>)}
- {screen==='Dueño'&&(!ownerToken?<><Text style={s.muted}>Solo el dueño da de alta productos desconocidos. Cualquier trabajador puede editar el identificador en español de un producto existente.</Text><Field label="PIN del dueño" value={pin} onChange={setPin} secret number onSubmit={()=>void run(async()=>{const r=await api<{owner_token:string}>('owner_login',{pin});setOwnerToken(r.owner_token);setPin('');setPending(await api('owner_pending',{owner_token:r.owner_token}));})}/><Button title="Ingresar" disabled={disabled||!pin} onPress={()=>void run(async()=>{const r=await api<{owner_token:string}>('owner_login',{pin});setOwnerToken(r.owner_token);setPin('');setPending(await api('owner_pending',{owner_token:r.owner_token}));})}/></>:<><Text style={s.muted}>Pendientes · Catalogar no suma stock.</Text>{pending.map(p=><Pressable accessibilityRole="button" style={s.card} key={p.id} onPress={()=>{setEditing(p);setOfficialSku(p.candidate_sku);setDescription('');setInternalName('');}}><Text style={s.cardTitle}>{p.original_code}</Text><Text>Nombrar producto</Text></Pressable>)}{!pending.length&&<Text>No hay pendientes.</Text>}<Button title="Cambiar PIN" secondary onPress={()=>{setCurrentPin('');setNewPin('');setConfirmNewPin('');setMessage('');setPinChangeOpen(true);}} disabled={disabled}/><Button title="Cerrar administración" secondary onPress={()=>{setOwnerToken('');setPending([]);}}/></>)}
+ {screen==='Dueño'&&(!ownerToken?<><Text style={s.muted}>Solo el dueño administra productos desconocidos y el catálogo. El personal puede consultar y operar productos existentes.</Text><Field label="PIN del dueño" value={pin} onChange={setPin} secret number onSubmit={()=>void run(async()=>{const r=await api<{owner_token:string}>('owner_login',{pin});setOwnerToken(r.owner_token);setPin('');setPending(await api('owner_pending',{owner_token:r.owner_token}));})}/><Button title="Ingresar" disabled={disabled||!pin} onPress={()=>void run(async()=>{const r=await api<{owner_token:string}>('owner_login',{pin});setOwnerToken(r.owner_token);setPin('');setPending(await api('owner_pending',{owner_token:r.owner_token}));})}/></>:<><Text style={s.muted}>Agregar productos nuevos desde Google Sheets</Text><Text style={s.muted}>En la PC, selecciona y copia las columnas SKU, descripción y peso (A:C) de las filas nuevas de la hoja unique. Pégalas aquí. Los SKU existentes no se modifican y la importación no crea stock ni ubicaciones.</Text><TextInput accessibilityLabel="Filas copiadas desde Sheets" style={[s.input,{minHeight:130,textAlignVertical:'top'}]} value={catalogPaste} onChangeText={setCatalogPaste} multiline autoCapitalize="none" autoCorrect={false} placeholder="SKU    Descripción    Peso (kg)"/><Button title="Importar productos nuevos" disabled={disabled||!catalogPaste.trim()} onPress={()=>void importCatalogPaste()}/><Text style={s.muted}>Pendientes por revisar</Text>{pending.map(p=><Pressable accessibilityRole="button" style={s.card} key={p.id} onPress={()=>{setEditing(p);setOfficialSku(p.candidate_sku);setDescription('');setInternalName('');}}><Text style={s.cardTitle}>{p.original_code}</Text><Text>Nombrar producto</Text></Pressable>)}{!pending.length&&<Text>No hay pendientes.</Text>}<Button title="Cerrar administración" secondary onPress={()=>{setOwnerToken('');setPending([]);setCatalogPaste('');}}/></>)}
  {['Para enviar','Guías','Historial'].includes(screen)&&<Button title="Actualizar lista" onPress={()=>void refresh()} disabled={disabled} secondary/>}
  </>}
  {busy&&<ActivityIndicator size="large" color="#087E83"/>}{!!message&&<View style={s.notice}><Text accessibilityLiveRegion="polite">{message}</Text></View>}

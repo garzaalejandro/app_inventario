@@ -86,19 +86,25 @@ Deno.serve(async(req:Request)=>{
    case 'remove_line': result=await db(`picking_lines?id=eq.${uuid(b.line_id)}`,'DELETE');break;
    case 'history': result=await db('movements?select=*&order=created_at.desc&limit=100');break;
    case 'owner_login': result=await db('rpc/owner_login','POST',{p_pin:text(b.pin,20)});break;
-   case 'owner_change_pin': {
-    await owner(b);
-    const ownerToken=uuid(b.owner_token);
-    const currentPin=text(b.current_pin,20),newPin=text(b.new_pin,12);
-    if(!/^\\d{4,12}$/.test(newPin))throw new Error('El PIN nuevo debe tener entre 4 y 12 dígitos.');
-    const changed=await db('rpc/change_owner_pin','POST',{p_owner_token:ownerToken,p_current_pin:currentPin,p_new_pin:newPin});
-    if(changed?.error)throw new Error(changed.error);
-    result=changed;break;
-   }
    case 'owner_pending': await owner(b);result=await db('unknown_codes?resolved_at=is.null&select=*&order=created_at.desc&limit=200');break;
    case 'owner_resolve': {
     await owner(b);
     result=await db('rpc/resolve_pending','POST',{p_id:uuid(b.id),p_sku:text(b.sku),p_description:text(b.description,2000),p_internal_name:typeof b.internal_name==='string'?b.internal_name.trim():null});break;
+   }
+   case 'owner_import_products': {
+    await owner(b);
+    if(!Array.isArray(b.products)||b.products.length<1||b.products.length>25)throw new Error('Importa entre 1 y 25 filas por lote.');
+    const products=b.products.map((value)=>{
+     if(!value||typeof value!=='object')throw new Error('Fila inválida.');
+     const item=value as Record<string,unknown>;const sku=text(item.sku,120);const description=text(item.description,2000);
+     let weight_kg:number|null=null;
+     if(item.weight_kg!==null&&item.weight_kg!==undefined&&item.weight_kg!==''){
+      if(typeof item.weight_kg!=='number'||!Number.isFinite(item.weight_kg)||item.weight_kg<0)throw new Error(`Peso inválido para ${sku}.`);
+      weight_kg=item.weight_kg;
+     }
+     return {sku,description,weight_kg};
+    });
+    result=await db('rpc/import_products_batch','POST',{p_products:products});break;
    }
    default:throw new Error('Acción desconocida');
   }
