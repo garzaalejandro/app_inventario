@@ -1,0 +1,35 @@
+name: Portal del dueño - catálogo
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'admin/**'
+      - '.github/workflows/admin-pages.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: admin-pages
+  cancel-in-progress: true
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Preparar portal
+        env:
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+        run: |
+          test -n "$EXPO_PUBLIC_SUPABASE_ANON_KEY" || { echo "::error::Falta EXPO_PUBLIC_SUPABASE_ANON_KEY en Actions secrets."; exit 1; }
+          mkdir -p dist
+          node -e 'const fs=require("fs");const p="admin/index.html";const k=process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;if(k.includes("\n"))throw Error("Clave inválida");fs.writeFileSync("dist/index.html",fs.readFileSync(p,"utf8").replace("__SUPABASE_ANON_KEY__",k));'
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+      - id: deployment
+        uses: actions/deploy-pages@v4
