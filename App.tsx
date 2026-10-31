@@ -53,7 +53,7 @@ export default function App(){
  const [online,setOnline]=useState<boolean|null>(null);const [message,setMessage]=useState('');
  const [code,setCode]=useState('');const [scannedCode,setScannedCode]=useState('');
  const [nameQuery,setNameQuery]=useState('');const [nameResults,setNameResults]=useState<Product[]>([]);
- const [intakeOpen,setIntakeOpen]=useState(false);const [showOriginal,setShowOriginal]=useState(false);
+ const [intakeOpen,setIntakeOpen]=useState(false);
  const [identifierEdit,setIdentifierEdit]=useState<{sku:string;name:string}|null>(null);const [lookup,setLookup]=useState<Lookup|null>(null);
  const [units,setUnits]=useState('1');const [row,setRow]=useState('1');const [position,setPosition]=useState('A');const [level,setLevel]=useState('1');
  const [operation,setOperation]=useState(()=>Crypto.randomUUID());
@@ -85,7 +85,7 @@ export default function App(){
  }
  function navigate(next:Screen){
   if(busyRef.current)return;
-  setScreen(next);setMessage('');setCode('');setLookup(null);setUnits('1');setScannedCode('');setIntakeOpen(false);setShowOriginal(false);
+  setScreen(next);setMessage('');setCode('');setLookup(null);setUnits('1');setScannedCode('');setIntakeOpen(false);
   setNameQuery('');setNameResults([]);
   if(next!=='Dueño'){setOwnerToken('');setPin('');setPending([]);}
   void refresh(next);
@@ -106,7 +106,7 @@ export default function App(){
    if(automatic&&!result.product)return;
    const defaults=intakeDefaults(result.stock);
    setUnits(defaults.units);setRow(defaults.row);setPosition(defaults.position);setLevel(defaults.level);
-   setScannedCode(scanned);setLookup(result);setCode('');setIntakeOpen(false);setShowOriginal(false);setOperation(Crypto.randomUUID());
+   setScannedCode(scanned);setLookup(result);setCode('');setIntakeOpen(false);setOperation(Crypto.randomUUID());
    scanRef.current?.focus();
   });
  }
@@ -159,8 +159,9 @@ export default function App(){
  {lookup&&(!product?<View style={s.card}><Text style={s.cardTitle}>{lookup.requires_review?'Código del catálogo por comprobar':'Código no encontrado en el catálogo descargado'}</Text><Text selectable>{scannedCode}</Text><Text style={s.muted}>Código base: {baseCandidate(scannedCode)}</Text><Text style={s.muted}>{lookup.local_only?'Sin conexión: se volverá a comprobar en la nube al sincronizar.':'No se encontró coincidencia en el catálogo.'}</Text><Button title="Guardar en pendientes" disabled={disabled} secondary onPress={()=>void run(async()=>{await api('pending',{scanned_code:scannedCode});setMessage(lastReceipt);})}/></View>:<View style={s.card}><Text selectable style={s.cardTitle}>{product.sku}</Text><Text style={s.recognized}>✓ Producto reconocido en el catálogo</Text>
  <View style={s.syncRow}><View style={s.flex}><Text style={s.label}>Identificador en español</Text><Text style={s.cardTitle}>{product.internal_name||'Sin identificador'}</Text></View><Pressable accessibilityRole="button" accessibilityLabel="Editar identificador en español" onPress={()=>setIdentifierEdit({sku:product.sku,name:product.internal_name??''})}><Text style={s.detailLink}>✎ Editar</Text></Pressable></View>
  <Text style={s.muted}>Puedes registrar unidades y ubicación aunque falte confirmar la descripción.</Text>
- <Pressable accessibilityRole="button" onPress={()=>setShowOriginal(!showOriginal)}><Text style={s.detailLink}>{showOriginal?'Ocultar referencia del proveedor':'Ver referencia del proveedor'}</Text></Pressable>
- {showOriginal&&<View><Text>{product.reference_description||product.description}</Text>{product.description_review&&<Text style={s.muted}>Referencia sin confirmar: las hojas contienen descripciones diferentes.</Text>}<Text style={s.muted}>Texto original del proveedor; puede estar en otro idioma.</Text></View>}<Text style={s.muted}>Peso: {product.weight_kg==null?'Por confirmar':`${product.weight_kg} kg`}</Text><Text style={s.stock}>{lookup.stock?`${lookup.stock.quantity} unidades`:'Sin existencias registradas'}</Text>{lookup.stock&&<Text>Fila {lookup.stock.row_number} · Posición {lookup.stock.position} · Nivel {lookup.stock.level}</Text>}
+ <Text style={s.label}>Descripción del catálogo</Text><Text selectable style={s.cardTitle}>{product.reference_description||product.description}</Text>{product.description_review&&<Text style={s.muted}>Las hojas tienen descripciones diferentes; se muestra la referencia del proveedor para identificar el producto.</Text>}
+ <Text style={s.muted}>Puedes registrar unidades y ubicación aunque falte confirmar la descripción.</Text>
+ <Text style={s.muted}>Peso: {product.weight_kg==null?'Por confirmar':`${product.weight_kg} kg`}</Text><Text style={s.stock}>{lookup.stock?`${lookup.stock.quantity} unidades`:'Sin existencias registradas'}</Text>{lookup.stock&&<Text>Fila {lookup.stock.row_number} · Posición {lookup.stock.position} · Nivel {lookup.stock.level}</Text>}
  {screen==='Productos'&&!intakeOpen&&<Button title="Agregar al almacén" disabled={disabled} onPress={()=>{setUnits('1');setIntakeOpen(true);}}/>}
  {screen!=='Consultar'&&(screen!=='Productos'||intakeOpen)&&<>{screen!=='Reacomodo'&&<View><Text style={s.label}>¿Cuántas unidades vas a {screen==='Salidas'?'retirar':'agregar'}?</Text><View style={s.quantityRow}><Pressable accessibilityRole="button" accessibilityLabel="Restar una unidad" disabled={disabled||Number(units)<=1} style={s.stepper} onPress={()=>setUnits(String(Math.max(1,(Number(units)||1)-1)))}><Text style={s.stepperText}>−</Text></Pressable><View style={s.flex}><Field label="Unidades" value={units} onChange={setUnits} number/></View><Pressable accessibilityRole="button" accessibilityLabel="Sumar una unidad" disabled={disabled} style={s.stepper} onPress={()=>setUnits(String(Math.min(100000,(Number(units)||1)+1)))}><Text style={s.stepperText}>＋</Text></Pressable></View></View>}{['Productos','Reacomodo'].includes(screen)&&<><SelectField label="Fila" value={row} onChange={setRow} options={warehouseRows}/><SelectField label="Posición" value={position} onChange={setPosition} options={warehousePositions}/><SelectField label="Nivel" value={level} onChange={setLevel} options={warehouseLevels}/></>}
 
